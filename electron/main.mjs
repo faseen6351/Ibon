@@ -1,0 +1,282 @@
+import { app, BrowserWindow, WebContentsView, ipcMain, session, shell, safeStorage, clipboard } from "electron";
+import path from "node:path";
+import fs from "node:fs";
+import { fileURLToPath } from "node:url";
+
+import { extractReadable, isTracker } from "./readable.mjs";
+import * as ai from "./ai.mjs";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const DEV_URL = process.env.IBON_DEV_URL;
+const HOME = "https://duckduckgo.com/";
+const SEARCH = "https://duckduckgo.com/?q=";
+const BLOCKED_IN_READ_MODE = new Set(["image", "media", "font"]);
+
+/** @type {BrowserWindow | null} */
+let win = null;
+/** @type {Map<number, {view: WebContentsView, readMode: boolean, blocked: number}>} */
+const tabs = new Map();
+let activeId = null;
+let nextId = 1;
+let bounds = { x: 0, y: 0, width: 0, height: 0 };
+let viewVisible = true;
+
+// ---------- settings (JSON in userData; API keys encrypted with the OS keychain) ----------
+const settingsFile = () => path.join(app.getPath("userData"), "settings.json");
+const defaults = { provider: { id: "ollama", api: "openai", baseUrl: "http://localhost:11434/v1", model: "llama3.1" }, keys: {}, bookmarks: [], webhooks: [] };
+
+function readSettings() {
+  try {
+    return { ...defaults, ...JSON.parse(fs.readFileSync(settingsFile(), "utf8")) };
+  } catch {
+    return structuredClone(defaults);
+  }
+}
+function writeSettings(s) {
+  fs.mkdirSync(path.dirname(settingsFile()), { recursive: true });
+  fs.writeFileSync(settingsFile(), JSON.stringify(s, null, 2));
+}
+function publicSettings() {
+  const s = readSettings();
+  return { provider: s.provider, hasKey: Object.fromEntries(Object.keys(s.keys).map((k) => [k, true])), bookmarks: s.bookmarks, webhooks: s.webhooks };
+}
+function activeProvider() {
+  const s = readSettings();
+  const enc = s.keys[s.provider.id];
+  let apiKey;
+  if (enc) {
+    try {
+      apiKey = safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(Buffer.from(enc, "base64")) : Buffer.from(enc, "base64").toString("utf8");
+    } catch {
+      apiKey = undefined;
+    }
+  }
+  return { ...s.provider, apiKey };
+}
+
+// ---------- url helpers ----------
+function normalize(input) {
+  const v = String(input ?? "").trim();
+  if (!v) return HOME;
+  if (/^https?:\/\//i.test(v)) return v;
+  if (/^[\w-]+(\.[\w-]+)+(:\d+)?(\/.*)?$/.test(v) || /^localhost(:\d+)?(\/.*)?$/i.test(v)) return `https://${v}`;
+  return SEARCH + encodeURIComponent(v);
+}
+const isWebUrl = (u) => /^https?:\/\//i.test(u);
+
+// ---------- tabs ----------
+function tabInfo(id, t) {
+  const wc = t.view.webContents;
+  return {
+    id,
+    url: wc.getURL(),
+    title: wc.getTitle() || wc.getURL() || "New tab",
+    loading: wc.isLoading(),
+    canGoBack: wc.navigationHistory.canGoBack(),
+    canGoForward: wc.navigationHistory.canGoForward(),
+    readMode: t.readMode,
+    blocked: t.blocked,
+    active: id === activeId,
+  };
+}
+function pushTabs() {
+  if (!win || win.isDestroyed()) return;
+  win.webContents.send("tabs", [...tabs].map(([id, t]) => tabInfo(id, t)));
+}
+function layoutActive() {
+  for (const [id, t] of tabs) {
+    const show = id === activeId && viewVisible;
+    t.view.setVisible(show);
+    if (show) t.view.setBounds(bounds);
+  }
+}
+
+function createTab(url = HOME, activate = true) {
+  const view = new WebContentsView({ webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } });
+  const id = nextId++;
+  const t = { view, readMode: false, blocked: 0 };
+  tabs.set(id, t);
+  win.contentView.addChildView(view);
+
+  const wc = view.webContents;
+  for (const ev of ["did-start-loading", "did-stop-loading", "page-title-updated", "did-navigate", "did-navigate-in-page"]) wc.on(ev, pushTabs);
+  wc.setWindowOpenHandler(({ url: u }) => {
+    if (isWebUrl(u)) createTab(u, true);
+    return { action: "deny" };
+  });
+  wc.on("will-navigate", (e, u) => {
+    if (!isWebUrl(u)) e.preventDefault();
+  });
+  wc.loadURL(normalize(url)).catch(() => {});
+  if (activate) activateTab(id);
+  else pushTabs();
+  return id;
+}
+
+function activateTab(id) {
+  if (!tabs.has(id)) return;
+  activeId = id;
+  layoutActive();
+  pushTabs();
+}
+
+function closeTab(id) {
+  const t = tabs.get(id);
+  if (!t) return;
+  win.contentView.removeChildView(t.view);
+  t.view.webContents.close();
+  tabs.delete(id);
+  if (activeId === id) {
+    const ids = [...tabs.keys()];
+    activeId = ids.length ? ids[ids.length - 1] : null;
+    if (activeId === null) return void createTab(HOME, true);
+  }
+  layoutActive();
+  pushTabs();
+}
+
+const activeTab = () => (activeId != null ? tabs.get(activeId) : undefined);
+
+async function readActivePage() {
+  const t = activeTab();
+  if (!t) throw new Error("No active tab");
+  const wc = t.view.webContents;
+  const html = await wc.executeJavaScript("document.documentElement.outerHTML");
+  return extractReadable(html, wc.getURL());
+}
+
+// ---------- request filtering: trackers always, heavy media in Read Mode ----------
+function installFilters() {
+  session.defaultSession.webRequest.onBeforeRequest((details, cb) => {
+    let tab;
+    for (const t of tabs.values()) if (t.view.webContents.id === details.webContentsId) tab = t;
+    const block = (tab && tab.readMode && BLOCKED_IN_READ_MODE.has(details.resourceType)) || (tab && isTracker(details.url));
+    if (block && tab) tab.blocked++;
+    cb({ cancel: Boolean(block) });
+  });
+}
+
+// ---------- IPC ----------
+function handle(channel, fn) {
+  ipcMain.handle(channel, async (event, ...args) => {
+    if (!win || event.sender !== win.webContents) throw new Error("Untrusted sender");
+    try {
+      return { ok: true, data: await fn(...args) };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+}
+
+function registerIpc() {
+  handle("tab:create", (url) => createTab(url ?? HOME, true));
+  handle("tab:close", (id) => closeTab(id));
+  handle("tab:activate", (id) => activateTab(id));
+  handle("tab:navigate", (url) => activeTab()?.view.webContents.loadURL(normalize(url)).catch(() => {}));
+  handle("tab:back", () => activeTab()?.view.webContents.navigationHistory.goBack());
+  handle("tab:forward", () => activeTab()?.view.webContents.navigationHistory.goForward());
+  handle("tab:reload", () => activeTab()?.view.webContents.reload());
+  handle("tab:devtools", () => activeTab()?.view.webContents.toggleDevTools());
+  handle("tab:readMode", (on) => {
+    const t = activeTab();
+    if (!t) return;
+    t.readMode = on ?? !t.readMode;
+    if (t.readMode === false) t.view.webContents.reload();
+    pushTabs();
+    return t.readMode;
+  });
+  handle("view:layout", (b, visible) => {
+    bounds = { x: Math.round(b.x), y: Math.round(b.y), width: Math.max(0, Math.round(b.width)), height: Math.max(0, Math.round(b.height)) };
+    viewVisible = visible !== false;
+    layoutActive();
+  });
+  handle("page:read", () => readActivePage());
+  handle("clipboard:write", (text) => clipboard.writeText(String(text)));
+
+  handle("settings:get", () => publicSettings());
+  handle("settings:set", (patch) => {
+    const s = readSettings();
+    for (const k of ["provider", "bookmarks", "webhooks"]) if (patch[k] !== undefined) s[k] = patch[k];
+    writeSettings(s);
+    return publicSettings();
+  });
+  handle("settings:setKey", (id, key) => {
+    const s = readSettings();
+    if (!key) delete s.keys[id];
+    else s.keys[id] = (safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(key) : Buffer.from(key, "utf8")).toString("base64");
+    writeSettings(s);
+    return publicSettings();
+  });
+
+  handle("ai:chat", async (messages, withPage) => ai.chat(activeProvider(), { messages, pageContext: withPage ? await readActivePage() : undefined }));
+  handle("ai:summarize", async (length) => {
+    const page = await readActivePage();
+    const summary = await ai.summarize(activeProvider(), { text: page.text, title: page.title, length });
+    return { summary, page };
+  });
+
+  handle("dev:netTool", async (tool, hostInput) => {
+    const host = String(hostInput).replace(/^https?:\/\//, "").split("/")[0];
+    if (!/^[\w.-]+$/.test(host)) throw new Error("Invalid host");
+    if (tool === "dns") {
+      const r = await fetch(`https://dns.google/resolve?name=${encodeURIComponent(host)}&type=A`, { signal: AbortSignal.timeout(8000) });
+      return (await r.json()).Answer ?? [];
+    }
+    if (tool === "headers") {
+      const r = await fetch(`https://${host}`, { method: "HEAD", signal: AbortSignal.timeout(8000) });
+      return { status: r.status, headers: Object.fromEntries(r.headers) };
+    }
+    if (tool === "ping") {
+      const started = Date.now();
+      try {
+        await fetch(`https://${host}`, { method: "HEAD", signal: AbortSignal.timeout(6000) });
+        return { host, reachable: true, ms: Date.now() - started };
+      } catch {
+        return { host, reachable: false, ms: Date.now() - started };
+      }
+    }
+    if (tool === "rdap") {
+      const r = await fetch(`https://rdap.org/domain/${encodeURIComponent(host)}`, { signal: AbortSignal.timeout(10000) });
+      return await r.json();
+    }
+    throw new Error("Unknown tool");
+  });
+  handle("dev:webhook", async (url, payload) => {
+    if (!isWebUrl(url)) throw new Error("Webhook URL must be http(s)");
+    const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload ?? {}), signal: AbortSignal.timeout(12000) });
+    return { ok: r.ok, status: r.status };
+  });
+}
+
+// ---------- window ----------
+function createWindow() {
+  win = new BrowserWindow({
+    width: 1280,
+    height: 820,
+    minWidth: 720,
+    minHeight: 480,
+    title: "Ibon",
+    backgroundColor: "#0f1115",
+    webPreferences: { preload: path.join(__dirname, "preload.cjs"), sandbox: true, contextIsolation: true, nodeIntegration: false },
+  });
+  win.setMenuBarVisibility(false);
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (isWebUrl(url)) shell.openExternal(url);
+    return { action: "deny" };
+  });
+  if (DEV_URL) win.loadURL(DEV_URL);
+  else win.loadFile(path.join(__dirname, "..", "dist", "index.html"));
+  win.webContents.once("did-finish-load", () => createTab(HOME, true));
+  win.on("closed", () => {
+    win = null;
+    tabs.clear();
+  });
+}
+
+app.whenReady().then(() => {
+  installFilters();
+  registerIpc();
+  createWindow();
+  app.on("activate", () => BrowserWindow.getAllWindows().length === 0 && createWindow());
+});
+app.on("window-all-closed", () => process.platform !== "darwin" && app.quit());
