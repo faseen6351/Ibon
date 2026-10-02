@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { api, type ChatMessage, type Settings } from "../lib/api";
+import { api, type AppInfo, type ChatMessage, type CrashInfo, type Settings } from "../lib/api";
 import { PROVIDER_PRESETS } from "../lib/providers";
 
 export type Panel = "assistant" | "tools" | "settings" | null;
@@ -41,7 +41,11 @@ function Assistant({ onAction, activeUrl, activeTitle }: Pick<Props, "onAction" 
   const [error, setError] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => endRef.current?.scrollIntoView({ block: "end" }), [messages, busy]);
+  // Braces matter: an effect must return nothing or a cleanup function, and newer Chromium returns a Promise
+  // from scrollIntoView(), which React would try to call as a cleanup and crash the whole UI.
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ block: "end" });
+  }, [messages, busy]);
 
   const handleReply = useCallback(
     async (reply: string) => {
@@ -228,6 +232,39 @@ function SettingsPanel() {
       </div>
       {msg && <p className="muted">{msg}</p>}
       <p className="muted">Keys stay on this device, encrypted with your OS keychain, and are only sent to the provider you choose.</p>
+      <Diagnostics />
     </div>
+  );
+}
+
+function Diagnostics() {
+  const [info, setInfo] = useState<AppInfo | null>(null);
+  const [crash, setCrash] = useState<CrashInfo | null>(null);
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    void api.appInfo().then(setInfo).catch(() => {});
+    void api.crashInfo().then(setCrash).catch(() => {});
+  }, []);
+
+  const crashText =
+    crash === null
+      ? "…"
+      : crash.count === 0
+        ? "No crash reports."
+        : `${crash.count} crash report${crash.count === 1 ? "" : "s"} (${(crash.bytes / 1048576).toFixed(1)} MB).`;
+
+  return (
+    <>
+      <label className="muted">Diagnostics</label>
+      <p className="muted">{crashText} They stay on this device and are never uploaded.</p>
+      <div className="row">
+        <button className="pill" onClick={() => api.openCrashFolder().catch((e) => setErr(e instanceof Error ? e.message : "Could not open the folder"))}>
+          Open crash folder
+        </button>
+      </div>
+      {err && <p className="error">{err}</p>}
+      {info && <p className="muted">Ibon {info.version} · Chromium {info.chromium} · Electron {info.electron} · {info.platform}</p>}
+    </>
   );
 }

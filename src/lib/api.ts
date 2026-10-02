@@ -7,7 +7,23 @@ export interface TabInfo {
   canGoForward: boolean;
   readMode: boolean;
   blocked: number;
+  /** Why this tab's renderer died (for example "crashed" or "oom"), or null while it is healthy. */
+  crashed: string | null;
   active: boolean;
+}
+
+export interface AppInfo {
+  version: string;
+  electron: string;
+  chromium: string;
+  platform: string;
+}
+
+export interface CrashInfo {
+  dir: string;
+  count: number;
+  bytes: number;
+  latest: number | null;
 }
 
 export interface Provider {
@@ -66,6 +82,9 @@ export const api = {
   layout: (r: { x: number; y: number; width: number; height: number }, visible: boolean) => b().invoke("view:layout", r, visible),
   readPage: () => b().invoke<PageText>("page:read"),
   copy: (text: string) => b().invoke("clipboard:write", text),
+  appInfo: () => b().invoke<AppInfo>("app:info"),
+  crashInfo: () => b().invoke<CrashInfo>("crash:info"),
+  openCrashFolder: () => b().invoke("crash:open"),
   getSettings: () => b().invoke<Settings>("settings:get"),
   setSettings: (patch: Partial<Pick<Settings, "provider" | "bookmarks" | "webhooks">>) => b().invoke<Settings>("settings:set", patch),
   setKey: (id: string, key: string) => b().invoke<Settings>("settings:setKey", id, key),

@@ -5,7 +5,8 @@
   --line: #2a2f3a;
   --text: #e6e8ee;
   --muted: #8b93a3;
-  --accent: #6aa3ff;
+  --brand: #9d00ff; /* logo purple */
+  --accent: #b266ff; /* lighter tint of the brand colour, readable on the dark background */
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
@@ -18,6 +19,7 @@ button:disabled { opacity: 0.4; cursor: default; }
 .app { display: flex; flex-direction: column; height: 100%; }
 
 .tabstrip { display: flex; align-items: center; gap: 2px; padding: 6px 8px 0; background: var(--bg2); overflow-x: auto; }
+.brand { width: 20px; height: 20px; margin: 0 8px 4px 2px; flex-shrink: 0; user-select: none; }
 .tab { display: flex; align-items: center; gap: 6px; min-width: 120px; max-width: 220px; padding: 6px 8px 6px 12px; border-radius: 8px 8px 0 0; background: transparent; color: var(--muted); cursor: pointer; }
 .tab.active { background: var(--bg3); color: var(--text); }
 .tab-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -41,6 +43,10 @@ button:disabled { opacity: 0.4; cursor: default; }
 .reader h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
 .reader-text { white-space: pre-wrap; font: 16px/1.7 Georgia, serif; }
 .lede { color: var(--muted); font-size: 15px; }
+
+.crash { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px; text-align: center; background: var(--bg); }
+.crash h1 { font-size: 22px; margin: 0; }
+.crash p { margin: 0; max-width: 420px; }
 
 .sidebar { width: 340px; flex-shrink: 0; display: flex; flex-direction: column; background: var(--bg2); border-left: 1px solid var(--line); }
 .sidebar-tabs { display: flex; border-bottom: 1px solid var(--line); }

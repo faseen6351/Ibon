@@ -1,9 +1,11 @@
-import { app, BrowserWindow, WebContentsView, ipcMain, session, shell, safeStorage, clipboard } from "electron";
+import { app, BrowserWindow, WebContentsView, ipcMain, session, shell, safeStorage, clipboard, crashReporter } from "electron";
 import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { extractReadable, isTracker } from "./readable.mjs";
+import { summarizeDumps } from "./crash-reports.mjs";
+import { isPermissionAllowed } from "./permissions.mjs";
 import * as ai from "./ai.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -12,9 +14,14 @@ const HOME = "https://duckduckgo.com/";
 const SEARCH = "https://duckduckgo.com/?q=";
 const BLOCKED_IN_READ_MODE = new Set(["image", "media", "font"]);
 
+// Crash reports: Electron bundles Crashpad, Chromium's crash reporter. Reports stay on this device; nothing
+// is uploaded and there is no telemetry. Start it first so every process is covered.
+crashReporter.start({ productName: "Ibon", submitURL: "", uploadToServer: false, extra: { ibon_version: app.getVersion() } });
+if (process.platform === "win32") app.setAppUserModelId("io.github.faseen6351.ibon");
+
 /** @type {BrowserWindow | null} */
 let win = null;
-/** @type {Map<number, {view: WebContentsView, readMode: boolean, blocked: number}>} */
+/** @type {Map<number, {view: WebContentsView, readMode: boolean, blocked: number, crashed: string | null}>} */
 const tabs = new Map();
 let activeId = null;
 let nextId = 1;
@@ -76,6 +83,7 @@ function tabInfo(id, t) {
     canGoForward: wc.navigationHistory.canGoForward(),
     readMode: t.readMode,
     blocked: t.blocked,
+    crashed: t.crashed,
     active: id === activeId,
   };
 }
@@ -94,11 +102,21 @@ function layoutActive() {
 function createTab(url = HOME, activate = true) {
   const view = new WebContentsView({ webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } });
   const id = nextId++;
-  const t = { view, readMode: false, blocked: 0 };
+  const t = { view, readMode: false, blocked: 0, crashed: null };
   tabs.set(id, t);
   win.contentView.addChildView(view);
 
   const wc = view.webContents;
+  // If this tab's renderer dies, the UI shows a notice until the tab starts loading again. Registered
+  // before the pushTabs listeners below so the cleared state is what gets pushed.
+  wc.on("render-process-gone", (_e, details) => {
+    if (details.reason === "clean-exit") return;
+    t.crashed = details.reason;
+    pushTabs();
+  });
+  wc.on("did-start-loading", () => {
+    t.crashed = null;
+  });
   for (const ev of ["did-start-loading", "did-stop-loading", "page-title-updated", "did-navigate", "did-navigate-in-page"]) wc.on(ev, pushTabs);
   wc.setWindowOpenHandler(({ url: u }) => {
     if (isWebUrl(u)) createTab(u, true);
@@ -148,12 +166,21 @@ async function readActivePage() {
 // ---------- request filtering: trackers always, heavy media in Read Mode ----------
 function installFilters() {
   session.defaultSession.webRequest.onBeforeRequest((details, cb) => {
+    // Never filter Chromium's own pages, such as the built-in PDF viewer (chrome-extension://) and DevTools.
+    if (details.url.startsWith("chrome-extension://") || details.url.startsWith("devtools://")) return cb({});
     let tab;
     for (const t of tabs.values()) if (t.view.webContents.id === details.webContentsId) tab = t;
     const block = (tab && tab.readMode && BLOCKED_IN_READ_MODE.has(details.resourceType)) || (tab && isTracker(details.url));
     if (block && tab) tab.blocked++;
     cb({ cancel: Boolean(block) });
   });
+}
+
+// ---------- permissions: deny by default (see permissions.mjs) ----------
+function installPermissionPolicy() {
+  const ses = session.defaultSession;
+  ses.setPermissionRequestHandler((_wc, permission, callback) => callback(isPermissionAllowed(permission)));
+  ses.setPermissionCheckHandler((_wc, permission) => isPermissionAllowed(permission));
 }
 
 // ---------- IPC ----------
@@ -192,6 +219,15 @@ function registerIpc() {
   });
   handle("page:read", () => readActivePage());
   handle("clipboard:write", (text) => clipboard.writeText(String(text)));
+
+  handle("app:info", () => ({ version: app.getVersion(), electron: process.versions.electron, chromium: process.versions.chrome, platform: process.platform }));
+  handle("crash:info", () => summarizeDumps(app.getPath("crashDumps")));
+  handle("crash:open", async () => {
+    const dir = app.getPath("crashDumps");
+    fs.mkdirSync(dir, { recursive: true });
+    const err = await shell.openPath(dir);
+    if (err) throw new Error(err);
+  });
 
   handle("settings:get", () => publicSettings());
   handle("settings:set", (patch) => {
@@ -256,6 +292,7 @@ function createWindow() {
     minWidth: 720,
     minHeight: 480,
     title: "Ibon",
+    icon: path.join(__dirname, "..", "build", "icon.png"),
     backgroundColor: "#0f1115",
     webPreferences: { preload: path.join(__dirname, "preload.cjs"), sandbox: true, contextIsolation: true, nodeIntegration: false },
   });
@@ -274,9 +311,12 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  installPermissionPolicy();
   installFilters();
   registerIpc();
   createWindow();
   app.on("activate", () => BrowserWindow.getAllWindows().length === 0 && createWindow());
 });
 app.on("window-all-closed", () => process.platform !== "darwin" && app.quit());
+// GPU and utility processes are restarted by Chromium on its own; just leave a trace for bug reports.
+app.on("child-process-gone", (_e, d) => console.warn(`[ibon] ${d.type} process gone: ${d.reason} (exit ${d.exitCode})`));

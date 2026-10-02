@@ -1,89 +1,181 @@
-# Ibon
+<p align="center">
+  <img src="assets/brand/ibon-typeface.svg" alt="Ibon" width="340">
+</p>
 
-**Intelligent Browser Open Network** — an open, intelligent gateway to the modern web.
+<p align="center">
+  <b>Intelligent Browser Open Network</b><br>
+  A light, open-source browser for developers: real Chromium, a small hackable interface,<br>
+  and an assistant that works with whichever LLM you choose.
+</p>
 
-Ibon is a lightweight, open-source desktop browser built for **developers**. It renders pages with real Chromium (through Electron) but wraps them in a small, hackable React UI, and adds the things developers keep reaching for other tools to do: text-only reading, network lookups, webhooks, and an AI assistant that can drive the browser, using whichever LLM you choose.
+<p align="center">
+  <a href="https://github.com/faseen6351/Ibon/releases"><img alt="Release" src="https://img.shields.io/github/v/release/faseen6351/Ibon?include_prereleases&color=9d00ff"></a>
+  <a href="https://github.com/faseen6351/Ibon/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/faseen6351/Ibon/ci.yml?branch=main&label=CI"></a>
+  <a href="LICENSE"><img alt="License: BSD-3-Clause" src="https://img.shields.io/badge/license-BSD--3--Clause-9d00ff"></a>
+  <img alt="Built with Electron" src="https://img.shields.io/badge/built%20with-Electron-47848f">
+  <a href="CONTRIBUTING.md"><img alt="PRs welcome" src="https://img.shields.io/badge/PRs-welcome-9d00ff"></a>
+</p>
 
-> Status: early (v0.1). It runs and is useful, but expect rough edges. Contributions welcome.
+<p align="center">
+  <a href="#download">Download</a> ·
+  <a href="#features">Features</a> ·
+  <a href="#connect-an-llm-optional">LLM setup</a> ·
+  <a href="#build-from-source">Build from source</a> ·
+  <a href="tasks.md">Roadmap</a> ·
+  <a href="CONTRIBUTING.md">Contribute</a>
+</p>
+
+<p align="center">
+  <img src="docs/assets/screenshot-browse.png" alt="Ibon showing a web page with the assistant panel open" width="900">
+</p>
+
+> **Status: version 0.0.1, a first alpha.** It runs, it is tested on Windows, and it is useful, but it is early. Read
+> [Known limitations](#known-limitations) before relying on it. Each crucial update bumps the version.
 
 ## Why Ibon
 
-- **Light by design.** No sync service, no bundled bloat, no accounts. The whole UI is a few hundred lines of React.
-- **Save data and tokens.** A per-tab **Read mode** blocks images, media and fonts and gives you clean text, which is also the cheapest thing to feed an LLM.
-- **Bring your own LLM, or none.** Everything works without AI. If you want it, plug in ChatGPT, Claude, Grok, DeepSeek, Kimi, GLM, a local Ollama model, or any OpenAI-compatible endpoint.
-- **A browser the AI can actually use.** The assistant sees the current page and can open URLs, toggle read mode, summarize and copy content.
+- **Light by design.** No account, no sync service, no bundled extras. The interface is a small React app you can read in an afternoon.
+- **Real Chromium.** Pages render in the same engine as Chrome and Edge, through Electron, with the built-in DevTools and PDF viewer.
+- **Save data and tokens.** A per-tab **Read mode** blocks images, media and fonts and gives you clean text, which is also the cheapest thing to hand to an LLM.
+- **Bring your own LLM, or none.** Everything works without AI. If you want it, connect ChatGPT, Claude, Grok, DeepSeek, Kimi, GLM, a local Ollama model, or any OpenAI-compatible endpoint.
+- **Built for developers.** DNS, response-header, ping and whois lookups for the current site, and a one-click webhook for sending a page's text to n8n, Zapier or your own service.
+- **Private by default.** Known trackers are blocked, nothing phones home, and crash reports stay on your computer.
 - **Open.** BSD-3-Clause. Fork it, change it, ship it.
+
+## Download
+
+Installers are attached to each [release](https://github.com/faseen6351/Ibon/releases).
+
+| OS | Download | Notes |
+| --- | --- | --- |
+| **Windows** 10 or 11, 64-bit | `Ibon-<version>-win-x64-setup.exe` (installer) or `Ibon-<version>-win-x64.zip` (portable) | Tested. Installs for your user only, no administrator rights needed. |
+| **macOS** 13 or later | `Ibon-<version>-mac-arm64.dmg` (Apple silicon) or `-mac-x64.dmg` (Intel) | Built automatically, not yet tested by hand. |
+| **Linux** 64-bit | `Ibon-<version>-linux-x64.AppImage` or `.deb` | Built automatically, not yet tested by hand. If the AppImage will not start on a distribution that restricts unprivileged user namespaces, use the `.deb`. |
+
+**These builds are not code-signed yet**, so your OS will warn you the first time:
+
+- **Windows:** SmartScreen shows "Windows protected your PC". Choose **More info**, then **Run anyway**.
+- **macOS:** Gatekeeper says the app cannot be opened. Right-click Ibon, choose **Open**, then confirm. If macOS says the app is "damaged", run `xattr -cr /Applications/Ibon.app` once.
+
+Signing is on the [roadmap](tasks.md). Until then you can compare the file you downloaded with the one attached to the release, or [build it yourself](#build-from-source).
 
 ## Features
 
 | Area | What you get |
 | --- | --- |
-| Browsing | Tabs, address bar with search, back / forward / reload, Chromium DevTools |
-| Read mode | Text-only loading per tab, clean reader view, word and size stats |
-| Privacy | Built-in tracker and ad-network blocking, with a per-tab blocked count |
-| Assistant | Chat about the current page, summarize (short / medium / detailed), browser actions |
-| Dev tools panel | DNS, response headers, ping and RDAP (whois) lookups for the current host |
-| Automation | Send a page's readable text to any webhook (n8n, Zapier, custom) |
-| Security | API keys encrypted with the OS keychain; sandboxed page views; only `http(s)` navigation |
+| **Browsing** | Tabs, address bar that searches (DuckDuckGo by default), back, forward, reload, Chromium DevTools |
+| **PDFs** | Chromium's built-in PDF viewer (PDFium): thumbnails, zoom, rotate, annotate, download, print |
+| **Read mode** | Text-only loading per tab, a clean reader view, word count, page size and blocked-request count |
+| **Privacy** | Built-in tracker and ad-network blocking with a per-tab counter; no telemetry |
+| **Assistant** | Ask about the current page, summarise it (short, medium or detailed), and let it open URLs, toggle Read mode or copy the page text |
+| **Dev tools panel** | DNS, response headers, ping and whois (RDAP) for the current host; send a page's readable text to any webhook |
+| **Resilience** | A crashed tab shows a notice with **Reload tab** while your other tabs keep working; crash reports are kept locally ([details](docs/crash-reports.md)) |
+| **Security basics** | Sandboxed page views, context isolation, only `http` and `https` navigation, camera, microphone, location, notifications and clipboard reads denied for every site, API keys encrypted with your OS keychain |
 
-## Getting started
+<table>
+  <tr>
+    <td width="50%"><img src="docs/assets/screenshot-devtools.png" alt="The Dev tools panel showing response headers for the current site"><br><sub><b>Dev tools panel:</b> response headers, DNS, ping and whois for the current site.</sub></td>
+    <td width="50%"><img src="docs/assets/screenshot-readmode.png" alt="Read mode showing a clean text view of a page"><br><sub><b>Read mode:</b> clean text with word count, page size and blocked requests.</sub></td>
+  </tr>
+</table>
 
-Requires **Node.js 20+**.
+## Connect an LLM (optional)
 
-```sh
-git clone https://github.com/faseen6351/Ibon.git
-cd Ibon
-npm install
-npm start        # build the UI and launch Ibon
-```
+Open the sidebar, choose **Settings**, pick a provider, set the model and paste your API key. For a fully offline
+setup, install [Ollama](https://ollama.com), pull a model, and choose **Local / Ollama**; no key is needed.
 
-For development with hot reload:
+Presets: Ollama, OpenAI, Anthropic (Claude), xAI (Grok), DeepSeek, Moonshot (Kimi) and Zhipu (GLM). Anything that
+speaks the OpenAI chat API, such as OpenRouter, Hugging Face's inference router, LM Studio or vLLM, works through the
+**Custom** preset: enter its base URL, a model name and, if it needs one, a key.
 
-```sh
-npm run dev
-```
+Keys stay on your device, encrypted with your OS keychain, and are only sent to the provider you chose. The assistant
+can drive the browser when it replies with action tags such as `[action:open_url https://…]`, `[action:read_mode]`,
+`[action:summarize medium]` and `[action:copy_content]`.
 
-Other scripts: `npm run build` (UI bundle only), `npm run typecheck`.
+## Known limitations
 
-### Connecting an LLM (optional)
+Ibon is an early alpha. The things to know before you rely on it:
 
-Open the sidebar → **Settings**, pick a provider, set the model, and paste your API key. For a fully offline setup, install [Ollama](https://ollama.com), pull a model, and choose **Local / Ollama** — no key needed.
-
-The assistant can control the browser by replying with action tags such as `[action:open_url https://…]`, `[action:read_mode]`, `[action:summarize medium]` and `[action:copy_content]`.
+- **Websites are denied camera, microphone, location, notifications and clipboard access, and there is no prompt to allow them yet.** That is the safe default, but it means video-call and notification sites will not work until permission prompts are built (first on the [roadmap](tasks.md)).
+- **The assistant acts on its own replies without asking you first.** Treat pages you do not trust accordingly; asking for confirmation is next to the permission prompts on the roadmap.
+- **API keys are only encrypted when your operating system provides a keychain.** Without one they are stored with weaker protection.
+- **Installers are unsigned**, and only Windows has been tested by hand.
+- There are no bookmarks, history, downloads panel, extensions or session restore yet. See the [roadmap](tasks.md).
 
 ## How it works
 
 ```
 ┌────────────────────────── Electron main process ─────────────────────────┐
-│ tabs (one Chromium view each) · tracker / read-mode request filter       │
-│ settings + encrypted keys · LLM calls · DNS / headers / webhook tools    │
+│ tabs (one Chromium view each) · tracker and read-mode request filter     │
+│ settings and encrypted keys · LLM calls · DNS, headers, webhook tools    │
+│ crash reporter (Crashpad, local only)                                    │
 └───────────────▲──────────────────────────────────────────────────────────┘
-                │ IPC (validated sender, contextIsolation, no node access)
-┌───────────────┴───────── React UI (renderer) ────────────────────────────┐
-│ tab strip · toolbar · reader view · sidebar (assistant / tools / settings)│
+                │ IPC (validated sender, context isolation, no Node access)
+┌───────────────┴───────── React interface (renderer) ─────────────────────┐
+│ tab strip · toolbar · reader view · sidebar (assistant, tools, settings) │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
 ```
-electron/   main process: tabs, filtering, IPC, LLM + network tools
-src/        React UI: App, Reader, Sidebar, typed IPC client
-chromium/   reference slice of upstream Chromium (content/shell + a few
-            components). Not compiled; for studying and borrowing ideas.
-scripts/    dev and start launchers
+electron/   main process: tabs, filtering, IPC, LLM and network tools, crash reports
+src/        React interface: App, Reader, Sidebar, typed IPC client
+assets/     brand artwork (logo, wordmark)
+build/      the app icon used when packaging
+scripts/    dev and start launchers, icon builder, end-to-end smoke test
+docs/       crash reports, sourcing register, releasing, screenshots
+chromium/   a reference slice of upstream Chromium. Never compiled; for studying
+            and porting behaviour. See docs/sourcing.md.
 ```
+
+PDF viewing and crash reporting use the PDFium and Crashpad that ship inside Electron, rather than copies of their
+source. [`docs/sourcing.md`](docs/sourcing.md) lists every outside component, its licence, and how it is used.
+
+## Build from source
+
+You need **Node.js 22 or newer**.
+
+```sh
+git clone https://github.com/faseen6351/Ibon.git
+cd Ibon
+npm install
+npm start          # build the interface and launch Ibon
+```
+
+| Command | What it does |
+| --- | --- |
+| `npm run dev` | Launch with hot reload |
+| `npm run typecheck` | Type-check the interface |
+| `npm test` | Run the unit tests |
+| `npm run smoke` | Launch the real app and check it end to end (crash recovery, panels, PDF viewer) |
+| `npm run pack` | Build an unpacked app into `release/` |
+| `npm run dist` | Build installers for your OS into `release/` |
+
+The first run downloads the Electron binary. If you launch Electron by hand from an editor terminal that sets
+`ELECTRON_RUN_AS_NODE`, unset it first; the npm scripts already do.
 
 ## Roadmap
 
-- Bookmarks, history and saved sessions
-- Read mode and tracker blocking for background loads, plus per-site rules
-- Automations (scheduled and page-triggered) and WhatsApp / chat sidebar
-- Extensions-style plugin API for developer tools
-- Packaged installers for Windows, macOS and Linux
+[`tasks.md`](tasks.md) is the working plan, with priorities and the reasoning behind each decision. Next up:
+
+1. A security baseline: per-site permission prompts, confirmation before the assistant acts, navigation guards.
+2. OpenRouter and Hugging Face presets, and a page **Checkup** that audits performance, accessibility, security and
+   SEO locally, then asks your model how to improve it.
+3. MCP: Ibon as an MCP server so coding agents can drive and inspect the browser, and as an MCP client for the assistant.
+4. Bookmarks, history, downloads and session restore.
+5. Signed installers and automatic updates.
 
 ## Contributing
 
-Ibon stays small on purpose, so please justify new dependencies. See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow. Issues and pull requests are welcome.
+Ibon stays small on purpose, so please justify new dependencies and only bring in code whose licence allows commercial
+use. [`CONTRIBUTING.md`](CONTRIBUTING.md) has the workflow; [`tasks.md`](tasks.md) marks good first issues. Please
+report security problems privately; see [`SECURITY.md`](SECURITY.md).
 
-## License
+## Licence and credits
 
-BSD-3-Clause — see [LICENSE](LICENSE). Files under `chromium/` retain their original Chromium license ([chromium/LICENSE](chromium/LICENSE)). Ibon is not affiliated with or endorsed by Google or the Chromium project.
+Ibon is released under the [BSD-3-Clause licence](LICENSE). Files under `chromium/` keep their original Chromium
+licence ([`chromium/LICENSE`](chromium/LICENSE)).
+
+Ibon stands on the work of the [Electron](https://www.electronjs.org/), [Chromium](https://www.chromium.org/),
+[PDFium](https://pdfium.googlesource.com/pdfium/), [Crashpad](https://chromium.googlesource.com/crashpad/crashpad/),
+[React](https://react.dev/) and [Vite](https://vite.dev/) projects. Ibon is not affiliated with or endorsed by Google,
+the Chromium project or the Electron project.

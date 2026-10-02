@@ -3,6 +3,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type PageText, type TabInfo } from "./lib/api";
 import { Sidebar, type Panel } from "./components/Sidebar";
 import { Reader } from "./components/Reader";
+import { CrashNotice } from "./components/CrashNotice";
+import brandIcon from "../assets/brand/ibon-icon.svg";
 
 export function App() {
   const [tabs, setTabs] = useState<TabInfo[]>([]);
@@ -14,6 +16,9 @@ export function App() {
 
   const active = tabs.find((t) => t.active);
   const readMode = Boolean(active?.readMode);
+  const crashed = active?.crashed ?? null;
+  // The native page view is drawn above this UI, so hide it whenever the UI has to show something instead.
+  const showPage = !readMode && !crashed;
 
   useEffect(() => api.onTabs(setTabs), []);
   useEffect(() => {
@@ -25,8 +30,8 @@ export function App() {
     const el = contentRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
-    void api.layout({ x: r.x, y: r.y, width: r.width, height: r.height }, !readMode);
-  }, [readMode]);
+    void api.layout({ x: r.x, y: r.y, width: r.width, height: r.height }, showPage);
+  }, [showPage]);
 
   useEffect(() => {
     syncLayout();
@@ -77,6 +82,7 @@ export function App() {
   return (
     <div className="app">
       <div className="tabstrip">
+        <img className="brand" src={brandIcon} alt="Ibon" draggable={false} />
         {tabs.map((t) => (
           <div key={t.id} className={`tab${t.active ? " active" : ""}`} onClick={() => api.activateTab(t.id)} title={t.url}>
             <span className="tab-title">{t.loading ? "… " : ""}{t.title}</span>
@@ -120,7 +126,7 @@ export function App() {
 
       <div className="body">
         <div className="content" ref={contentRef}>
-          {readMode && <Reader state={reader} blocked={active?.blocked ?? 0} onRefresh={loadReader} />}
+          {crashed ? <CrashNotice reason={crashed} onReload={() => void api.reload()} /> : readMode && <Reader state={reader} blocked={active?.blocked ?? 0} onRefresh={loadReader} />}
         </div>
         {panel && <Sidebar panel={panel} setPanel={setPanel} onAction={runAction} activeUrl={active?.url ?? ""} activeTitle={active?.title ?? ""} />}
       </div>

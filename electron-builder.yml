@@ -1,0 +1,54 @@
+# Packaging config for electron-builder (MIT). `npm run pack` makes an unpacked app, `npm run dist`
+# makes installers for the OS you run it on. CI builds all three; see .github/workflows/release.yml.
+appId: io.github.faseen6351.ibon
+productName: Ibon
+copyright: Copyright © 2026 Ibon contributors
+
+directories:
+  output: release
+  buildResources: build
+
+# Ship only what runs. React is bundled into dist/ by Vite, so node_modules is not needed at runtime.
+files:
+  - electron/**/*
+  - "!electron/**/*.test.mjs"
+  - dist/**/*
+  - build/icon.png
+  - package.json
+
+artifactName: ${productName}-${version}-${os}-${arch}.${ext}
+
+win:
+  icon: build/icon.png
+  target:
+    - { target: nsis, arch: [x64] }
+    - { target: zip, arch: [x64] }
+
+nsis:
+  artifactName: ${productName}-${version}-win-${arch}-setup.${ext}
+  oneClick: false
+  perMachine: false # installs for the current user, no administrator prompt
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false
+
+mac:
+  icon: build/icon.png
+  category: public.app-category.developer-tools
+  target:
+    - { target: dmg, arch: [x64, arm64] }
+    - { target: zip, arch: [x64, arm64] }
+
+linux:
+  icon: build/icon.png
+  category: Network;WebBrowser
+  synopsis: Light, open-source browser for developers
+  target:
+    - { target: AppImage, arch: [x64] }
+    - { target: deb, arch: [x64] }
+
+# Release builds upload to a draft GitHub release; publish it by hand after checking the files.
+publish:
+  provider: github
+  owner: faseen6351
+  repo: Ibon
+  releaseType: draft

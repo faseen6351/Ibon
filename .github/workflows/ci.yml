@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+      # End-to-end smoke test of the real app (see scripts/smoke.mjs). Verified on Windows; macOS and Linux
+      # are new, so a failure there is reported but does not block merges yet. Remove continue-on-error
+      # once they have been green for a while.
+      - name: Smoke test
+        if: runner.os == 'Windows'
+        run: npm run smoke
+      - name: Smoke test (Linux, virtual display)
+        if: runner.os == 'Linux'
+        continue-on-error: true
+        run: xvfb-run -a npm run smoke
+      - name: Smoke test (macOS)
+        if: runner.os == 'macOS'
+        continue-on-error: true
+        run: npm run smoke
+
+  package:
+    name: Package (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # Builds the unpacked app only (no installer, no signing) to catch packaging breakage on every PR.
+      - run: npm run pack
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # Ibon ships Chromium through Electron, so a known Electron advisory is a release blocker.
+      - run: npm audit --audit-level=high

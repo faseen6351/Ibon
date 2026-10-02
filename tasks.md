@@ -7,22 +7,27 @@ Last reviewed: 2026-10-02.
 **Priority:** P0 blocks a public release · P1 core · P2 polish.
 **Tags:** `port` re-implement upstream behaviour in TypeScript · `use` add a dependency · `build` no good upstream exists · `spike` time-boxed experiment whose result decides the approach · `gfi` good first issue.
 
-## Milestones
+## Versions
 
-| Version | Theme | Contains |
+Ibon starts at **0.0.1**. Every crucial update bumps the number (0.0.2, 0.0.3, …); a new capability bumps the middle
+number (0.1.0, 0.2.0, …); **1.0.0** is the first release we call stable. It is `major.minor.patch` because npm,
+Electron and Windows installers all require that shape. See [docs/releasing.md](docs/releasing.md).
+
+| Release | Theme | Contains |
 | --- | --- | --- |
-| v0.2 | Solid base | Phases 0 and 1, core browser basics (C-01 to C-08) |
-| v0.3 | Smart developer browser | AI provider hub (OpenRouter, Hugging Face, local), Checkup v1, MCP server, command palette, new-tab widgets |
-| v0.4 | Private and fast | Phase 3, rest of Phase 2, MCP client |
-| v0.5 | Every developer | Web, mobile, ML and dApp tracks, plugin API |
-| v1.0 | Release | Installers, signing, auto-update, docs |
+| **0.0.1** (first alpha) | Installable and honest | Windows installer, crash recovery, PDF viewer, default-deny web permissions, Electron 44, brand, README |
+| 0.0.x (crucial updates) | Solid base | Rest of Phase 1 (permission prompts, assistant confirmation, navigation guards), CI proven on macOS and Linux, core browser basics (C-01 to C-08) |
+| 0.1.0 | Smart developer browser | AI provider hub (OpenRouter, Hugging Face, local), Checkup v1, MCP server, command palette, new-tab widgets |
+| 0.2.0 | Private and fast | Phase 3, rest of Phase 2, MCP client |
+| 0.3.0 | Every developer | Web, mobile, ML and dApp tracks, plugin API |
+| 1.0.0 | Release | Signed installers, auto-update, docs |
 
-## Start here (first sprint)
+## Start here (next crucial updates)
 
-Small, high-value, and together they prove the workflow.
+Small, high-value, and together they prove the workflow. Done items are ticked.
 
-- [ ] P0-03 CI on Windows, macOS and Linux
-- [ ] S-01 Deny web permission requests by default (today every request is auto-approved)
+- [x] P0-03 CI on Windows, macOS and Linux (workflows written; they run for the first time when pushed)
+- [~] S-01 Web permissions: **denied by default is done and tested** (it used to grant camera, microphone, location and clipboard to every page silently). Per-site allow prompts are still open.
 - [ ] S-07 Stop storing API keys as plain base64 when the OS keychain is unavailable
 - [ ] AI-20 Confirm assistant actions before they run
 - [ ] AI-01 OpenRouter and Hugging Face presets (mostly data in `src/lib/providers.ts`)
@@ -46,6 +51,8 @@ Checked on 2026-10-02:
 | CEF directly | Same engine as Electron, but we would rebuild windowing, IPC and updates in C++. More work, no new capability. |
 | Ladybird, Servo | Independent engines, promising, not ready for daily browsing. Ladybird's first alpha targets Linux and macOS only; Windows has only been teased. Watch, do not build on. |
 | Fork Chromium | Full control, but a ~100 GB checkout, hours-long builds and constant rebasing. Rejected earlier. |
+
+Staying current is not optional. On 2026-10-02 `npm audit` flagged Electron 39 with high-severity advisories (popups and child windows not inheriting the sandbox, cross-origin reads through protocol handlers, and others). Ibon moved to **Electron 44.5.1** (Chromium 152) before the first release. That upgrade also surfaced a latent bug (an effect returning the Promise from `scrollIntoView()` blanked the whole UI on newer Chromium), which the smoke test now guards.
 
 Consequence to accept: on Electron we cannot patch Chromium internals. Anything that needs a C++ change (fingerprint randomisation, Safe Browsing, built-in sync) is out of scope.
 
@@ -94,6 +101,15 @@ Take the most efficient route, in this order, and write down why when you skip a
 3. A port of behaviour from Chromium or another allowlisted project, with its test vectors (D3).
 4. Build it ourselves.
 
+### D8. Use what Electron already ships
+
+Electron bundles Chromium's own **Crashpad** (crash reports) and **PDFium** (PDF viewer). Compiling either ourselves
+would add a native build chain and a second copy of code that is already in the app, with no capability gained. Ibon
+uses them through Electron (`crashReporter`, the built-in PDF viewer) and adds only what upstream does not provide:
+recovering a crashed tab, and showing where reports are kept. Verified 2026-10-02: a PDF renders in an Ibon tab, and a
+deliberately crashed tab leaves a local minidump with uploads off. Crashpad's own retention (database over 128 MB or
+a report older than 365 days) is already enforced by the handler inside Electron, so we do not re-implement it.
+
 ### What costs money
 
 Everything in this plan is free for a public open-source repo (GitHub Actions, Pages, CodeQL, Dependabot, build attestations) except one item: macOS notarisation needs an Apple Developer account, about $99 per year, with no free path (R-03). LLM usage is paid by whoever supplies the API key.
@@ -110,6 +126,8 @@ Everything in this plan is free for a public open-source repo (GitHub Actions, P
 | Electron and its security checklist | MIT | Session, permission, certificate, DoH APIs, fuses | |
 | Ghostery adblocker (`@ghostery/adblocker-electron`) ✔ | MPL-2.0 | JS filter engine, EasyList and uBO syntax, cosmetic filtering, Electron integration | Editing its files without keeping them MPL |
 | Brave adblock-rust (`adblock-rs`) ✔ | MPL-2.0 | Faster native engine with Node bindings, a fallback if the JS engine is too slow | Native binaries add packaging cost |
+| Crashpad ✔ (local copy) | Apache-2.0 | Used through Electron's `crashReporter`; its design (local database, retention, no upload without consent) | Do not copy or compile it (D8) |
+| PDFium ✔ (local copy) | BSD-3-Clause | Used through Chromium's built-in PDF viewer | Do not copy or compile it (D8) |
 | Chrome DevTools MCP ✔ | Apache-2.0 | Design reference for browser-inspection MCP tools (traces, network, console, screenshots, accessibility snapshot) | |
 | MCP TypeScript SDK ✔ | Apache-2.0 for new code, MIT for existing | Server and client, stdio and Streamable HTTP, OAuth helpers | |
 | axe-core ✔ | MPL-2.0 | Accessibility checks, injected on demand | Modifying its files |
@@ -166,9 +184,9 @@ For D7 step 2. Added only when a task needs them, each justified in its PR. Thes
 
 ## Phase 0. Repo, GitHub and workflow (do first)
 
-- [ ] **P0-01** P1 Decide the commit identity. Commits currently carry `fasinabsons <fasin.absons@gmail.com>`, while the GitHub account is `faseen6351`. Set a repo-local `user.email` (a GitHub noreply address if the personal one should stay out of public history).
+- [ ] **P0-01** P1 Decide the commit identity. Commits currently use a personal git identity whose name and email differ from the GitHub account `faseen6351`, so the commits are not attributed to that account and the personal email is visible in public history. Set a repo-local `user.name` and `user.email` (the account's GitHub noreply address keeps the personal one out of future commits).
 - [ ] **P0-02** P0 Protect `main`: pull requests required, CI must pass, no force-push. Work happens on branches and merges by squash, even when working solo.
-- [ ] **P0-03** P0 GitHub Actions matrix (Windows, macOS, Linux): `npm ci`, typecheck, lint, unit tests, build. Done when a failing test blocks merge.
+- [x] **P0-03** P0 GitHub Actions matrix (Windows, macOS, Linux): `npm ci`, typecheck, unit tests, build, end-to-end smoke test, a packaging check and an `npm audit`. Workflows are in `.github/workflows/`. Still to do: add lint (P0-04), make the macOS and Linux smoke jobs blocking once they have been green, and require CI in branch protection (P0-02).
 - [ ] **P0-04** P1 Lint and format with one tool (Biome) instead of ESLint plus Prettier plus plugins.
 - [ ] **P0-05** P0 Tests. Vitest for pure logic (URL, search, bookmarks, filters). Playwright `_electron` smoke test: launch, open a tab, load a local fixture page, assert the title. The launcher must unset `ELECTRON_RUN_AS_NODE`.
 - [ ] **P0-06** P1 `SECURITY.md` (private reporting through GitHub advisories), `CODE_OF_CONDUCT.md`, issue and PR templates, `CODEOWNERS`, labels, Discussions. Seed `good first issue`s from this file.
@@ -182,7 +200,9 @@ For D7 step 2. Added only when a task needs them, each justified in its PR. Thes
 
 Items marked (found) come from reading the current code.
 
-- [ ] **S-01** P0 (found) Permissions. No handler is set, so Electron approves every permission request from any page (camera, microphone, location, notifications). Add `setPermissionRequestHandler` and `setPermissionCheckHandler` with default deny, a per-site prompt (allow once, allow, block), persistence per origin, and automatic block after repeated dismissals (model: Chromium `components/permissions`). Done when a test page asking for geolocation shows a prompt and nothing is granted without one.
+- [~] **S-01** P0 (found) Permissions. Electron approves every permission request from any page unless the app installs a handler; **confirmed on the real app**: a plain page was granted camera (a stream actually opened), microphone, location, notifications and clipboard-read with no prompt.
+  - [x] Default deny shipped in 0.0.1 (`electron/permissions.mjs`, `installPermissionPolicy()` in `main.mjs`): everything is denied except `fullscreen`, `clipboard-sanitized-write` and `pointerLock`. `npm run smoke` checks that no sensitive permission is granted.
+  - [ ] Per-site prompt (allow once, allow, block), persistence per origin, and automatic block after repeated dismissals (model: Chromium `components/permissions`, which is only in the full Chromium tree). Done when a test page asking for geolocation shows a prompt and nothing is granted without one.
 - [ ] **S-02** P0 `use` Flip Electron fuses at package time with `@electron/fuses`: disable `RunAsNode` and `NODE_OPTIONS`, enable ASAR integrity and cookie encryption, load the app only from the ASAR.
 - [ ] **S-03** P0 (found) Navigation guards. Only `will-navigate` is handled. Add `will-redirect` and `will-frame-navigate`, deny `file:`, `javascript:`, top-level `data:` and internal schemes from web content, and ask before opening external protocols (`mailto:` and similar).
 - [ ] **S-04** P0 (found) Isolated sessions. All tabs share `session.defaultSession`. Add non-persistent private partitions and install the request filter per session.
@@ -211,7 +231,10 @@ Items marked (found) come from reading the current code.
 - [ ] **C-11** P1 Context menu. Electron has none by default: back, forward, reload, open in new tab, copy link or image, save, inspect, and "Ask Ibon about this selection".
 - [ ] **C-12** P2 Per-site zoom, remembered per origin.
 - [ ] **C-13** P1 `port` Network error pages (error codes and wording from Chromium's `neterror`), with a "Diagnose" button that runs the existing DNS, headers and ping tools.
-- [ ] **C-14** P1 `spike` Confirm Chromium's PDF viewer works inside `WebContentsView`; if it does not, embed PDF.js.
+- [x] **C-14** P1 `spike` Chromium's built-in PDF viewer (PDFium) works inside `WebContentsView` with Ibon's default settings, so nothing to embed. Verified on Electron 39 and 44 and covered by `npm run smoke`. The request filter now leaves `chrome-extension://` and `devtools://` URLs alone so Read mode cannot break the viewer.
+- [ ] **C-21** P1 PDF text for Read mode and the assistant. A PDF tab currently has no readable text, because the viewer is an embedded plugin. Extract the text with PDF.js (Apache-2.0) in an isolated context, on demand.
+- [ ] **C-22** P1 Crash-loop protection. Once session restore exists (C-08), detect repeated crashes at startup and offer a safe start (no restored tabs, hardware acceleration off). Not built yet because there is nothing to restore.
+- [ ] **C-23** P1 Open a local PDF or file from disk (File → Open, drag and drop). Navigation is limited to `http(s)` today.
 - [ ] **C-15** P1 `spike` Storage: use `node:sqlite` (built into the Node that Electron bundles, so no native module) for bookmarks, history and settings, with `PRAGMA user_version` migrations. Confirm it works in the pinned Electron, including FTS5 for history search.
 - [ ] **C-16** P1 Memory saver: discard long-idle tabs (close the view, keep URL, title and scroll, recreate on activate). Never discard pinned, playing-audio or dirty-form tabs (policy ideas from Chromium's performance manager).
 - [ ] **C-17** P1 Performance budget (D5) measured in CI: cold start, idle memory with one tab, UI bundle size.
@@ -325,7 +348,7 @@ A side panel that audits the current page locally, without any LLM, and then opt
 - [ ] **AI-22** P2 Agentic page actions (click, type, select, scroll, screenshot for vision models) with a per-step confirmation.
 - [ ] **AI-23** P1 Local chat history per tab or site, searchable, exportable.
 - [ ] **AI-24** P1 Selection actions in the context menu: explain, fix, translate, rewrite.
-- [ ] **AI-25** P1 Reader upgrade: Mozilla Readability for extraction, width and font controls, text-to-speech through the Web Speech API, copy as Markdown, per-site auto Read mode.
+- [ ] **AI-25** P1 Reader upgrade: Mozilla Readability for extraction, width and font controls, text-to-speech through the Web Speech API, copy as Markdown, per-site auto Read mode. (Fixed in 0.0.1: HTML entities in the title and summary line, `&amp;` decoded in the wrong order, and the `<head>` text leaking into the body; all covered by `electron/readable.test.mjs`.)
 - [ ] **A-06** P1 Automations: webhook presets (n8n, Zapier, Make, Slack, Discord), triggers (manual, URL pattern on page load, schedule), payload templates, run log.
 - [ ] **A-07** P2 "Web panels": any site as a pinned side panel with its own persistent session (a chat web app, Colab). Not an official messaging API.
 
@@ -344,19 +367,37 @@ A side panel that audits the current page locally, without any LLM, and then opt
 - [ ] **X-02** P2 Userscripts: per-site CSS and JS snippets, run in an isolated world.
 - [ ] **X-03** P2 Plugin examples repository and a "build a plugin in 10 minutes" guide.
 
-## Phase 8. Packaging and release (v1.0)
+## Phase 8. Packaging and release (1.0.0)
 
-- [ ] **R-01** P0 Electron Forge (official, MIT) installers: Windows (Squirrel or MSIX plus portable zip), macOS (dmg), Linux (AppImage, deb, rpm, Flatpak).
-- [ ] **R-02** P1 Auto-update through `update.electronjs.org` (free hosted service for open-source apps with public GitHub releases; covers macOS and Windows; verify current terms). Linux through package repos and Flatpak.
+- [~] **R-01** P0 Installers with **electron-builder** (MIT; one config for all three OSes, config in `electron-builder.yml`). Chosen over Electron Forge because one tool covers Windows (NSIS installer plus portable zip), macOS (dmg and zip, Intel and Apple silicon) and Linux (AppImage and deb), and its updater works on all three.
+  - [x] Windows: installer and zip built, installed silently, the installed app passed `npm run smoke`, and the uninstaller removed files, shortcuts and registry entry. The installer is about 106 MB and the app code inside is 356 KB.
+  - [ ] macOS and Linux: built by the Release workflow, never run by hand. Test both, then promote the CI smoke jobs to blocking. Linux to check: the AppImage on distributions that restrict unprivileged user namespaces (the `.deb` installs a sandbox helper), and a Flatpak as a later option.
+  - [ ] First release: tag `v0.0.1` and publish the draft ([docs/releasing.md](docs/releasing.md)).
+- [ ] **R-02** P1 Automatic updates with `electron-updater` (MIT) against GitHub Releases, which works on all three OSes once builds are signed (macOS requires signing for updates). Until then 0.0.1 users update by installing the newer release. An update check must be a visible, switchable setting.
 - [ ] **R-03** P0 Signing. Windows: apply to the SignPath Foundation free open-source signing program (verify eligibility), otherwise expect SmartScreen warnings. macOS: Apple Developer Program (about $99 per year) for notarisation, the one unavoidable recurring cost; until then ship an unsigned dmg with install instructions.
 - [ ] **R-04** P0 Release pipeline: tag, matrix build, draft GitHub Release with SHA-256 checksums, a CycloneDX SBOM and build-provenance attestations.
 - [ ] **R-05** P1 No telemetry, stated in the README. Crash dumps stay local unless the user opts in to share one.
 - [ ] **R-06** P2 Docs site on GitHub Pages, built from `docs/`.
-- [ ] **R-07** P1 Versioning and changelog policy; update the README roadmap to point at this file.
+- [x] **R-07** P1 Versioning policy (0.0.1 start, patch for crucial updates, 1.0.0 stable) is written in "Versions" above and in `docs/releasing.md`. Still to do: a changelog (GitHub release notes are enough to start).
 
 ---
 
-## Done in v0.1
+## Done
+
+### In 0.0.1
+
+- [x] Electron upgraded from 39 to **44.5.1** (Chromium 152); `npm audit` is clean
+- [x] Windows installer, portable zip and uninstaller, tested end to end (R-01, Windows part)
+- [x] Brand: app icon, tab-strip mark, favicon, purple accent, wordmark in the README
+- [x] Crash handling: Crashpad reports kept locally and never uploaded, a recovery notice with **Reload tab** for a crashed tab, and a Diagnostics block in Settings (D8)
+- [x] PDF viewing through Chromium's built-in viewer (C-14)
+- [x] Web permissions denied by default (S-01, first half)
+- [x] Fixed: opening the Dev tools panel, or using the Assistant, could blank the whole UI on Chromium 152; the UI now also has an error boundary
+- [x] Fixed: Read mode entity decoding and head-text leakage
+- [x] Tests: unit tests with Node's built-in runner, and `npm run smoke`, an end-to-end check of the real app
+- [x] CI and release workflows, README, `SECURITY.md`, `CONTRIBUTING.md`, sourcing register
+
+### In the first prototype
 
 - [x] Electron shell with tabs, address bar with search, back, forward, reload
 - [x] Chromium DevTools toggle
@@ -369,7 +410,9 @@ A side panel that audits the current page locally, without any LLM, and then opt
 
 ## Open questions
 
-1. Commit identity (P0-01).
-2. macOS signing: accept the $99 per year, or ship unsigned for now (R-03)?
-3. Is the MCP server worth pulling forward into v0.2, since it is the cheapest way to get Claude Code and Cursor users onto Ibon?
-4. dApp track (DA-01): ship the dev wallet in v0.5, or hold the whole track until after the first public release?
+1. **The root `LICENSE` is a verbatim copy of Chromium's**, so it names "The Chromium Authors" and Google as copyright holders of Ibon itself. It should read "Copyright (c) 2026 <your name or Ibon contributors>" with the same BSD-3-Clause terms, keeping Chromium's notice only in `chromium/LICENSE`. Needs the owner's decision on the holder's name.
+2. Enable GitHub's private vulnerability reporting (Settings → Code security) so the instructions in `SECURITY.md` work.
+3. Commit identity (P0-01).
+4. macOS signing: accept the $99 per year, or ship unsigned for now (R-03)?
+5. Is the MCP server worth pulling forward, since it is the cheapest way to get Claude Code and Cursor users onto Ibon?
+6. dApp track (DA-01): ship the dev wallet in 0.3.0, or hold the whole track until after the first public release?
