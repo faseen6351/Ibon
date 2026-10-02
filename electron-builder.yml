@@ -16,6 +16,15 @@ files:
   - build/icon.png
   - package.json
 
+# Licence notices travel with the app (React's MIT notice is required to, and is not kept in the bundle).
+# They land in the app's resources folder, next to Electron's own LICENSE.electron.txt and LICENSES.chromium.html.
+extraResources:
+  - from: LICENSE
+    to: LICENSE.ibon.txt
+  - THIRD_PARTY_NOTICES.md
+  - from: LICENSES
+    to: LICENSES
+
 artifactName: ${productName}-${version}-${os}-${arch}.${ext}
 
 win:

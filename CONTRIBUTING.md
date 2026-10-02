@@ -29,6 +29,10 @@ fix a bug, add a check that fails without your fix.
 - **Licences.** Only bring in code or data whose licence allows commercial use and does not force Ibon to change
   licence: MIT, BSD, ISC, Apache-2.0 (and MPL-2.0 as an unmodified dependency). No GPL, LGPL or AGPL, and nothing
   non-commercial. Add a row to [docs/sourcing.md](docs/sourcing.md) for anything you borrow.
+- **Your contribution is released under the project's licence** (BSD 3-Clause, see [docs/licensing.md](docs/licensing.md)).
+  Only submit work you wrote or that you may license that way.
+- **Deriving from another project?** Name it in the file header, add an `SPDX-License-Identifier:` line, and add a row
+  to the sourcing register. `electron/permission-manager.mjs` (from Min) is the example to follow.
 - **Porting from Chromium** means re-implementing the behaviour in TypeScript and porting upstream's unit-test
   cases, not pasting C++. Start each ported file with a comment naming the upstream path and licence.
 - **Dependencies.** Justify every new one in the pull request. Prefer what Electron or Chromium already provides.

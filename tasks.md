@@ -81,6 +81,7 @@ Rule: Ibon only uses public code whose licence allows commercial use and does no
 - **Not allowed:** GPL, AGPL and LGPL code (they would force Ibon, or its linked parts, under the same licence, and block closed-source forks). uBlock Origin's code is GPL-3.0.
 - **Not allowed:** anything non-commercial or no-derivatives (CC BY-NC, CC BY-ND, "free for personal use"), and anything with no licence at all. DuckDuckGo Tracker Radar is CC BY-NC-SA 4.0.
 - **Dual-licensed GPL-or-paid projects** (GPL for open source, paid licence for commercial use) count as GPL here.
+- **Adding a second licence does not make GPL code usable.** Multi-licensing is something a copyright holder does with their own code; it cannot relicense someone else's GPL work, and GPL code inside Ibon would force the whole program under the GPL. If GPL functionality is wanted, reimplement the idea, or ship it as a separate optional add-on. The reasoning and the options are in [docs/licensing.md](docs/licensing.md).
 - Filter lists are downloaded and cached at runtime, not vendored, and credited in Settings → About.
 - Every borrowed, ported or depended-on item is recorded in the sourcing register (P0-11). The CI licence check (P0-07) is the source of truth, not anyone's memory of a licence.
 
@@ -149,7 +150,7 @@ Do not use:
 | uBlock Origin code ✔ | GPL-3.0 | Copyleft. Its filter syntax and public lists are fine as data. |
 | DuckDuckGo Tracker Radar ✔ | CC BY-NC-SA 4.0 | Non-commercial. |
 | Disconnect tracker list | GPL-3.0 | Copyleft. |
-| `electron-chrome-extensions` | Believed GPL-3.0 with a separate paid licence; verify | Dual-licensed GPL-or-paid counts as GPL (D4). Use Electron's own `session.loadExtension` (D-09). |
+| `electron-chrome-extensions` (electron-browser-shell) ✔ | GPL-3.0 | Dual-licensed GPL-or-paid counts as GPL (D4). Use Electron's own `session.loadExtension` (D-09). |
 
 ### Candidate libraries (all believed to be on the allowlist)
 
@@ -184,7 +185,7 @@ For D7 step 2. Added only when a task needs them, each justified in its PR. Thes
 
 ## Phase 0. Repo, GitHub and workflow (do first)
 
-- [ ] **P0-01** P1 Decide the commit identity. Commits currently use a personal git identity whose name and email differ from the GitHub account `faseen6351`, so the commits are not attributed to that account and the personal email is visible in public history. Set a repo-local `user.name` and `user.email` (the account's GitHub noreply address keeps the personal one out of future commits).
+- [ ] **P0-01** P1 Decide the commit identity. GitHub's contributors list now shows two accounts, `fasinabsons` (6 commits, from the git identity on this machine) and `faseen6351` (1 commit, the repository owner), because the commits were made under an email that belongs to a different GitHub account. Pick the account that should own the history, set a repo-local `user.name` and `user.email` to match (that account's GitHub noreply address keeps the personal email out of public history), and decide whether to rewrite the existing commits' authors, which means another force-push and moving the `v0.0.1` tag.
 - [ ] **P0-02** P0 Protect `main`: pull requests required, CI must pass, no force-push. Work happens on branches and merges by squash, even when working solo.
 - [x] **P0-03** P0 GitHub Actions matrix (Windows, macOS, Linux): `npm ci`, typecheck, unit tests, build, end-to-end smoke test, a packaging check and an `npm audit`. Workflows are in `.github/workflows/`. Still to do: add lint (P0-04), make the macOS and Linux smoke jobs blocking once they have been green, and require CI in branch protection (P0-02).
 - [ ] **P0-04** P1 Lint and format with one tool (Biome) instead of ESLint plus Prettier plus plugins.
@@ -200,9 +201,9 @@ For D7 step 2. Added only when a task needs them, each justified in its PR. Thes
 
 Items marked (found) come from reading the current code.
 
-- [~] **S-01** P0 (found) Permissions. Electron approves every permission request from any page unless the app installs a handler; **confirmed on the real app**: a plain page was granted camera (a stream actually opened), microphone, location, notifications and clipboard-read with no prompt.
-  - [x] Default deny shipped in 0.0.1 (`electron/permissions.mjs`, `installPermissionPolicy()` in `main.mjs`): everything is denied except `fullscreen`, `clipboard-sanitized-write` and `pointerLock`. `npm run smoke` checks that no sensitive permission is granted.
-  - [ ] Per-site prompt (allow once, allow, block), persistence per origin, and automatic block after repeated dismissals (model: Chromium `components/permissions`, which is only in the full Chromium tree). Done when a test page asking for geolocation shows a prompt and nothing is granted without one.
+- [x] **S-01** P0 (found, fixed) Permissions. Electron approves every permission request from any page unless the app installs a handler; confirmed on the real app, where a plain page was granted camera (a stream actually opened), microphone, location, notifications and clipboard-read with no prompt.
+  - [x] Default deny, then a per-site **Allow / Block bar** for camera, microphone and notifications (`electron/permission-manager.mjs`, ported from Min's permission manager, Apache-2.0). Allow lasts for the current page only and is revoked on navigation, close or crash; Block is remembered until the page changes; sub-frames, location, clipboard-read and everything else are always refused. Unit-tested (13 tests) and covered end to end by `npm run smoke`.
+  - [ ] Remembered per-site choices, and a list in Settings to review and revoke them (model: Chromium `components/permissions`, which is only in the full Chromium tree). Tracked as V-08.
 - [ ] **S-02** P0 `use` Flip Electron fuses at package time with `@electron/fuses`: disable `RunAsNode` and `NODE_OPTIONS`, enable ASAR integrity and cookie encryption, load the app only from the ASAR.
 - [ ] **S-03** P0 (found) Navigation guards. Only `will-navigate` is handled. Add `will-redirect` and `will-frame-navigate`, deny `file:`, `javascript:`, top-level `data:` and internal schemes from web content, and ask before opening external protocols (`mailto:` and similar).
 - [ ] **S-04** P0 (found) Isolated sessions. All tabs share `session.defaultSession`. Add non-persistent private partitions and install the request filter per session.
@@ -218,16 +219,16 @@ Items marked (found) come from reading the current code.
 
 ## Phase 2. Core browser
 
-- [ ] **C-01** P0 `port` URL fixer from `components/url_formatter/url_fixer` with `url_fixer_unittest.cc` vectors. Replaces the single regex in `normalize()`. Must handle `localhost:3000`, IPv4 and IPv6, `*.local` and `*.test`, scheme-less input and stray whitespace.
-- [ ] **C-02** P1 `port` Search engines from `components/search_engines`: keyword shortcuts (`gh`, `mdn`, `npm`, `so`, `hf`), default-engine setting, OpenSearch autodiscovery. DuckDuckGo stays the default.
+- [ ] **C-01** P0 `port` URL fixer from `components/url_formatter/url_fixer` with `url_fixer_unittest.cc` vectors. Replaces the single regex in `normalize()`. Must handle `localhost:3000`, IPv4 and IPv6, `*.local` and `*.test`, scheme-less input and stray whitespace. Second reference: Min `js/util/urlParser.js` (Apache-2.0), including its HTTPS-upgrade list and public-suffix check (the Public Suffix List is MPL-2.0 data).
+- [ ] **C-02** P1 `port` Search engines from `components/search_engines`: keyword shortcuts (`gh`, `mdn`, `npm`, `so`, `hf`), default-engine setting, OpenSearch autodiscovery. DuckDuckGo stays the default. Reference: Min `js/searchbar/customBangs.js` and `bangsPlugin.js` (Apache-2.0).
 - [ ] **C-03** P1 `port` Bookmarks (model from `components/bookmarks`): folders, bookmark bar, star button, Ctrl+D, import and export in the Netscape HTML format.
-- [ ] **C-04** P1 History with full-text search and omnibox suggestions ranked by frecency (ideas from Chromium's history provider, simpler reference in Min). Clear browsing data by time range.
-- [ ] **C-05** P1 `port` Find in page (Ctrl+F) using `webContents.findInPage`, with match count (state machine from `components/find_in_page`).
-- [ ] **C-06** P1 Downloads: `will-download`, a panel with progress, pause, resume, open folder, ask-where option.
-- [ ] **C-07** P1 Tab strip: pin, drag to reorder, duplicate, reopen closed tab, middle-click close, colour groups, tab search. Min's "Tasks" is the simpler reference.
-- [ ] **C-08** P1 Session restore after quit or crash.
+- [ ] **C-04** P1 History with full-text search and omnibox suggestions ranked by frecency (ideas from Chromium's history provider, simpler reference in Min). Clear browsing data by time range. Reference: Min `js/places/fullTextSearch.js` (Apache-2.0; uses Dexie and a stemmer).
+- [ ] **C-05** P1 `port` Find in page (Ctrl+F) using `webContents.findInPage`, with match count (state machine from `components/find_in_page`). Reference: Min `js/findinpage.js` (Apache-2.0).
+- [ ] **C-06** P1 Downloads: `will-download`, a panel with progress, pause, resume, open folder, ask-where option. Reference: Min `main/download.js` and `js/downloadManager.js` (Apache-2.0).
+- [ ] **C-07** P1 Tab strip: pin, drag to reorder, duplicate, reopen closed tab, middle-click close, colour groups, tab search. Min's "Tasks" is the simpler reference. Reference: Min `js/tasks.js` and `js/taskOverlay/` (Apache-2.0).
+- [ ] **C-08** P1 Session restore after quit or crash. Reference: Min `js/sessionRestore.js` (Apache-2.0).
 - [ ] **C-09** P1 Multiple windows and private windows (needs S-04).
-- [ ] **C-10** P1 Keyboard shortcuts and menu accelerators (Ctrl+T/W/L/R/F/D/Tab, Alt+Left/Right, F12), listed in a help overlay.
+- [ ] **C-10** P1 Keyboard shortcuts and menu accelerators (Ctrl+T/W/L/R/F/D/Tab, Alt+Left/Right, F12), listed in a help overlay. Reference: Min `js/defaultKeybindings.js` and `js/keybindings.js` (Apache-2.0); Vimium (MIT) for link hints.
 - [ ] **C-11** P1 Context menu. Electron has none by default: back, forward, reload, open in new tab, copy link or image, save, inspect, and "Ask Ibon about this selection".
 - [ ] **C-12** P2 Per-site zoom, remembered per origin.
 - [ ] **C-13** P1 `port` Network error pages (error codes and wording from Chromium's `neterror`), with a "Diagnose" button that runs the existing DNS, headers and ping tools.
@@ -255,6 +256,7 @@ Items marked (found) come from reading the current code.
 - [ ] **V-08** P1 Per-site settings page and "site info" popover from the lock icon: certificate, cookies, permissions, blocked trackers (model: Chromium `content_settings`).
 - [ ] **V-09** P1 Phishing and malware protection without Google's API: a local check against free community feeds, with an interstitial. Check each feed's terms in the PR. Google's Safe Browsing API needs a key and has usage terms, so it is not the default.
 - [ ] **V-10** P2 Clear-on-exit options.
+- [ ] **V-11** P1 `use` Dismiss cookie-consent banners automatically with `@duckduckgo/autoconsent` (MPL-2.0, used unmodified), off by default and switchable per site.
 
 ## Phase 4. UI and widgets
 
@@ -266,6 +268,7 @@ Items marked (found) come from reading the current code.
 - [ ] **U-06** P1 Searchable settings page, with import and export of settings (never secrets).
 - [ ] **U-07** P2 One-minute onboarding: theme, search engine, optional LLM, import bookmarks. No accounts.
 - [ ] **U-08** P2 i18n scaffolding with English first; community translations.
+- [ ] **U-10** P2 `use` Per-site page dark mode with Dark Reader (MIT), or Chromium's force-dark feature if that is enough.
 - [ ] **U-09** P1 Code-split panels and lazy-load widgets so the first window paints fast.
 
 ## Phase 5. Developer toolkit
@@ -364,7 +367,7 @@ A side panel that audits the current page locally, without any LLM, and then opt
 ## Phase 7. Plugins
 
 - [ ] **X-01** P1 Plugin manifest `ibon-plugin.json`. Stage one is declarative and runs no code: themes, search engines, filter lists, command snippets, panel definitions. Stage two adds code plugins as sandboxed iframes with a capability-based `postMessage` API (no Node access).
-- [ ] **X-02** P2 Userscripts: per-site CSS and JS snippets, run in an isolated world.
+- [ ] **X-02** P2 Userscripts: per-site CSS and JS snippets, run in an isolated world. Reference: Min `js/userscripts.js` (Apache-2.0).
 - [ ] **X-03** P2 Plugin examples repository and a "build a plugin in 10 minutes" guide.
 
 ## Phase 8. Packaging and release (1.0.0)
@@ -410,7 +413,7 @@ A side panel that audits the current page locally, without any LLM, and then opt
 
 ## Open questions
 
-1. **The root `LICENSE` is a verbatim copy of Chromium's**, so it names "The Chromium Authors" and Google as copyright holders of Ibon itself. It should read "Copyright (c) 2026 <your name or Ibon contributors>" with the same BSD-3-Clause terms, keeping Chromium's notice only in `chromium/LICENSE`. Needs the owner's decision on the holder's name.
+1. **Licence holder.** The root `LICENSE` now reads "Copyright (c) 2026, Ibon contributors" with the standard BSD 3-Clause text; before, it was a verbatim copy of Chromium's, naming Google and "The Chromium Authors" as Ibon's copyright holders. "Ibon contributors" is the usual neutral holder for a community project; replace it with a personal or company name if you prefer.
 2. Enable GitHub's private vulnerability reporting (Settings → Code security) so the instructions in `SECURITY.md` work.
 3. Commit identity (P0-01).
 4. macOS signing: accept the $99 per year, or ship unsigned for now (R-03)?

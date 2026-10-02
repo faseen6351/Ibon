@@ -49,8 +49,8 @@ Installers are attached to each [release](https://github.com/faseen6351/Ibon/rel
 | OS | Download | Notes |
 | --- | --- | --- |
 | **Windows** 10 or 11, 64-bit | `Ibon-<version>-win-x64-setup.exe` (installer) or `Ibon-<version>-win-x64.zip` (portable) | Tested. Installs for your user only, no administrator rights needed. |
-| **macOS** 13 or later | `Ibon-<version>-mac-arm64.dmg` (Apple silicon) or `-mac-x64.dmg` (Intel) | Built automatically, not yet tested by hand. |
-| **Linux** 64-bit | `Ibon-<version>-linux-x64.AppImage` or `.deb` | Built automatically, not yet tested by hand. If the AppImage will not start on a distribution that restricts unprivileged user namespaces, use the `.deb`. |
+| **macOS** 13 or later | `Ibon-<version>-mac-arm64.dmg` (Apple silicon) or `Ibon-<version>-mac-x64.dmg` (Intel) | Built and checked by automated tests on every release, not yet tried by hand. |
+| **Linux** 64-bit | `Ibon-<version>-linux-x86_64.AppImage` or `Ibon-<version>-linux-amd64.deb` | Built and checked by automated tests on every release, not yet tried by hand. If the AppImage will not start on a distribution that restricts unprivileged user namespaces, use the `.deb`. |
 
 **These builds are not code-signed yet**, so your OS will warn you the first time:
 
@@ -70,7 +70,7 @@ Signing is on the [roadmap](tasks.md). Until then you can compare the file you d
 | **Assistant** | Ask about the current page, summarise it (short, medium or detailed), and let it open URLs, toggle Read mode or copy the page text |
 | **Dev tools panel** | DNS, response headers, ping and whois (RDAP) for the current host; send a page's readable text to any webhook |
 | **Resilience** | A crashed tab shows a notice with **Reload tab** while your other tabs keep working; crash reports are kept locally ([details](docs/crash-reports.md)) |
-| **Security basics** | Sandboxed page views, context isolation, only `http` and `https` navigation, camera, microphone, location, notifications and clipboard reads denied for every site, API keys encrypted with your OS keychain |
+| **Security basics** | Sandboxed page views, context isolation, only `http` and `https` navigation, camera, microphone and notifications only after you click Allow (and only for that page), location and clipboard reads always denied, API keys encrypted with your OS keychain |
 
 <table>
   <tr>
@@ -96,10 +96,10 @@ can drive the browser when it replies with action tags such as `[action:open_url
 
 Ibon is an early alpha. The things to know before you rely on it:
 
-- **Websites are denied camera, microphone, location, notifications and clipboard access, and there is no prompt to allow them yet.** That is the safe default, but it means video-call and notification sites will not work until permission prompts are built (first on the [roadmap](tasks.md)).
-- **The assistant acts on its own replies without asking you first.** Treat pages you do not trust accordingly; asking for confirmation is next to the permission prompts on the roadmap.
+- **Permission choices are not remembered.** A site that wants your camera, microphone or notifications gets an **Allow / Block** bar; Allow lasts only until that tab loads a new page. That is safe, but you will be asked again next time. Location and clipboard reading are always refused.
+- **The assistant acts on its own replies without asking you first.** Treat pages you do not trust accordingly; asking for confirmation is next on the [roadmap](tasks.md).
 - **API keys are only encrypted when your operating system provides a keychain.** Without one they are stored with weaker protection.
-- **Installers are unsigned**, and only Windows has been tested by hand.
+- **Installers are unsigned**, and only Windows has been tried by hand.
 - There are no bookmarks, history, downloads panel, extensions or session restore yet. See the [roadmap](tasks.md).
 
 ## How it works
@@ -157,7 +157,7 @@ The first run downloads the Electron binary. If you launch Electron by hand from
 
 [`tasks.md`](tasks.md) is the working plan, with priorities and the reasoning behind each decision. Next up:
 
-1. A security baseline: per-site permission prompts, confirmation before the assistant acts, navigation guards.
+1. A security baseline: confirmation before the assistant acts, navigation guards, remembered per-site permissions.
 2. OpenRouter and Hugging Face presets, and a page **Checkup** that audits performance, accessibility, security and
    SEO locally, then asks your model how to improve it.
 3. MCP: Ibon as an MCP server so coding agents can drive and inspect the browser, and as an MCP client for the assistant.
@@ -172,10 +172,13 @@ report security problems privately; see [`SECURITY.md`](SECURITY.md).
 
 ## Licence and credits
 
-Ibon is released under the [BSD-3-Clause licence](LICENSE). Files under `chromium/` keep their original Chromium
-licence ([`chromium/LICENSE`](chromium/LICENSE)).
+Ibon is released under the [BSD 3-Clause licence](LICENSE): use it, change it and ship it, commercially or not, as
+long as you keep the copyright notice. [`docs/licensing.md`](docs/licensing.md) explains the model, including why Ibon
+only takes in permissive code and what to do about GPL. Files under `chromium/` keep their original Chromium licence
+([`chromium/LICENSE`](chromium/LICENSE)). The notices for everything Ibon is built from are in
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md), and every installer carries a copy.
 
 Ibon stands on the work of the [Electron](https://www.electronjs.org/), [Chromium](https://www.chromium.org/),
 [PDFium](https://pdfium.googlesource.com/pdfium/), [Crashpad](https://chromium.googlesource.com/crashpad/crashpad/),
-[React](https://react.dev/) and [Vite](https://vite.dev/) projects. Ibon is not affiliated with or endorsed by Google,
-the Chromium project or the Electron project.
+[React](https://react.dev/), [Vite](https://vite.dev/) and [Min](https://github.com/minbrowser/min) projects. Ibon is
+not affiliated with or endorsed by Google, the Chromium project, the Electron project or the Min project.
