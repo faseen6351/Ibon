@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { api, type PageText, type TabInfo } from "./lib/api";
+import { api, type PageText, type PermissionRequest, type TabInfo } from "./lib/api";
 import { Sidebar, type Panel } from "./components/Sidebar";
 import { Reader } from "./components/Reader";
 import { CrashNotice } from "./components/CrashNotice";
+import { PermissionBar } from "./components/PermissionBar";
 import brandIcon from "../assets/brand/ibon-icon.svg";
 
 export function App() {
   const [tabs, setTabs] = useState<TabInfo[]>([]);
+  const [permissionRequests, setPermissionRequests] = useState<PermissionRequest[]>([]);
   const [address, setAddress] = useState("");
   const [editing, setEditing] = useState(false);
   const [panel, setPanel] = useState<Panel>("assistant");
@@ -21,6 +23,12 @@ export function App() {
   const showPage = !readMode && !crashed;
 
   useEffect(() => api.onTabs(setTabs), []);
+  useEffect(() => {
+    void api.permissions().then(setPermissionRequests).catch(() => {});
+    return api.onPermissions(setPermissionRequests);
+  }, []);
+  // Only the tab you are looking at can ask; requests from other tabs wait until you switch to them.
+  const myRequests = permissionRequests.filter((r) => r.tabId === active?.id);
   useEffect(() => {
     if (!editing) setAddress(active?.url ?? "");
   }, [active?.url, active?.id, editing]);
@@ -123,6 +131,10 @@ export function App() {
         <button type="button" className="icon" onClick={() => api.devtools()} title="Developer tools">{"</>"}</button>
         <button type="button" className={`icon${panel ? " on" : ""}`} onClick={() => setPanel(panel ? null : "assistant")} title="Sidebar">☰</button>
       </form>
+
+      {myRequests.length > 0 && (
+        <PermissionBar request={myRequests[0]} more={myRequests.length - 1} onRespond={(id, allow) => void api.respondPermission(id, allow)} />
+      )}
 
       <div className="body">
         <div className="content" ref={contentRef}>

@@ -128,7 +128,16 @@ const child = exe
 console.log(exe ? `Launching packaged build: ${exe}` : "Launching unpackaged app (npm run build first)");
 
 const targets = async () => (await fetch(`http://127.0.0.1:${port}/json`)).json();
-const samePath = (a, b) => path.resolve(a).toLowerCase().startsWith(path.resolve(b).toLowerCase());
+// Resolve symlinks and 8.3 short names first: macOS temp folders live under /var, which is really /private/var,
+// and Windows CI reports C:\Users\RUNNER~1. Without this a correct report location looks wrong.
+const real = (p) => {
+  try {
+    return fs.realpathSync.native(p);
+  } catch {
+    return path.resolve(p);
+  }
+};
+const samePath = (a, b) => real(a).toLowerCase().startsWith(real(b).toLowerCase());
 let ui;
 try {
   const uiTarget = await until(async () => (await targets()).find((t) => t.type === "page" && t.url.startsWith("file:")), 40000);
@@ -141,26 +150,63 @@ try {
   const tab = await until(async () => (await targets()).find((t) => t.type === "page" && t.url.startsWith(base) && t.title === "Ibon smoke page"), 20000);
   check("a tab loads a page", Boolean(tab));
 
-  // A page must not get the camera, microphone, location, notifications or clipboard contents without asking.
-  // (Regression: Electron grants every permission request unless the app installs a handler.) This only reads
-  // permission states and never opens a device.
-  const probe = await cdp(tab.webSocketDebuggerUrl);
+  // ---- Permissions. A page must not get the camera, microphone, location, notifications or clipboard contents
+  // without the user saying yes. (Regression: Electron grants every request unless the app installs a handler.)
+  // Only notifications are ever ALLOWED here, and camera plus microphone are only ever BLOCKED, so the test
+  // never opens a real device.
+  const inTab = async (expression) => {
+    const c = await cdp(tab.webSocketDebuggerUrl);
+    try {
+      const r = await c.send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true, userGesture: true });
+      return r.exceptionDetails ? `THROWN: ${r.exceptionDetails.exception?.description ?? r.exceptionDetails.text}` : r.result.value;
+    } finally {
+      c.close();
+    }
+  };
+  const bar = () => evaluate(ui, "document.querySelector('.permbar')?.textContent || ''");
+  const press = (label) => evaluate(ui, `[...document.querySelectorAll('.permbar button')].find((b) => b.textContent === '${label}')?.click()`);
+
   const states = JSON.parse(
-    await evaluate(
-      probe,
-      `(async () => {
-        const out = {};
-        for (const name of ['camera', 'microphone', 'geolocation', 'notifications', 'clipboard-read']) {
-          try { out[name] = (await navigator.permissions.query({ name })).state; } catch { out[name] = 'unsupported'; }
-        }
-        out.notificationRequest = await Notification.requestPermission();
-        return JSON.stringify(out);
-      })()`,
-    ),
+    await inTab(`(async () => {
+      const out = {};
+      for (const name of ['camera', 'microphone', 'geolocation', 'notifications', 'clipboard-read']) {
+        try { out[name] = (await navigator.permissions.query({ name })).state; } catch { out[name] = 'unsupported'; }
+      }
+      return JSON.stringify(out);
+    })()`),
   );
-  probe.close();
   const granted = Object.entries(states).filter(([, v]) => v === "granted").map(([k]) => k);
-  check("pages are denied camera, microphone, location, notifications and clipboard access", granted.length === 0, granted.length ? `granted without asking: ${granted.join(", ")}` : "none granted");
+  check("nothing sensitive is granted before the user answers", granted.length === 0, granted.length ? `granted without asking: ${granted.join(", ")}` : "none granted");
+
+  await inTab("window.__ask = Notification.requestPermission(); 1");
+  const noticeBar = await until(async () => ((await bar()).includes("wants to show notifications") ? await bar() : ""), 10000);
+  check("a notification request shows an Allow / Block bar naming the site", Boolean(noticeBar), noticeBar || "no bar");
+  await shot(ui, "permission-bar.png");
+  await press("Block");
+  check("Block refuses the request", (await inTab("window.__ask")) === "denied");
+  check("the bar goes away", (await bar()) === "");
+  await inTab("window.__ask = Notification.requestPermission(); 1");
+  check("a blocked site is refused again without nagging", (await inTab("window.__ask")) === "denied" && (await bar()) === "");
+
+  const camera = await inTab("window.__cam = navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then(() => 'opened', (e) => e.name); 1");
+  const cameraBar = await until(async () => ((await bar()).includes("camera and microphone") ? await bar() : ""), 10000);
+  check("a camera and microphone request asks first", Boolean(cameraBar) && camera === 1, cameraBar || "no bar");
+  await press("Block");
+  check("blocking camera and microphone refuses it", (await inTab("window.__cam")) === "NotAllowedError");
+
+  // A page that changes starts from scratch, so the earlier Block no longer applies. Allow notifications this time.
+  await evaluate(ui, "window.ibon.invoke('tab:reload')");
+  await until(async () => (await targets()).find((t) => t.type === "page" && t.url.startsWith(base) && t.title === "Ibon smoke page"), 20000);
+  await sleep(500);
+  await inTab("window.__ask = Notification.requestPermission(); 1");
+  check("after reloading, the site can ask afresh", Boolean(await until(async () => ((await bar()).includes("wants to show notifications") ? "yes" : ""), 10000)));
+  await press("Allow");
+  check("Allow grants it", (await inTab("window.__ask")) === "granted");
+  check("the page now sees the grant", (await inTab("Notification.permission")) === "granted");
+  await evaluate(ui, "window.ibon.invoke('tab:reload')");
+  await until(async () => (await targets()).find((t) => t.type === "page" && t.url.startsWith(base) && t.title === "Ibon smoke page"), 20000);
+  await sleep(500);
+  check("the grant is revoked when the page changes", (await inTab("Notification.permission")) !== "granted");
 
   const before = await evaluate(ui, "window.ibon.invoke('crash:info')");
   const tabSession = await cdp(tab.webSocketDebuggerUrl);

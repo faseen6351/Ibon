@@ -35,6 +35,9 @@ button:disabled { opacity: 0.4; cursor: default; }
 .pill:hover:not(:disabled) { border-color: var(--accent); }
 .pill.on { background: var(--accent); border-color: var(--accent); color: #0b1020; }
 
+.permbar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--bg3); border-bottom: 1px solid var(--accent); }
+.permbar-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 .body { flex: 1; display: flex; min-height: 0; }
 .content { flex: 1; position: relative; min-width: 0; background: #fff; }
 

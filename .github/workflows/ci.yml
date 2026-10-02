@@ -31,15 +31,15 @@ jobs:
       - run: npm test
       - run: npm run build
 
-      # End-to-end smoke test of the real app (see scripts/smoke.mjs). Verified on Windows; macOS and Linux
-      # are new, so a failure there is reported but does not block merges yet. Remove continue-on-error
-      # once they have been green for a while.
+      # End-to-end smoke test of the real app (see scripts/smoke.mjs). Windows and Linux pass every check and
+      # block merges. macOS had one false failure (a temp-folder symlink in the test, now fixed), so it still only
+      # reports; remove continue-on-error from it once it has been green. NOTE: continue-on-error shows the job as
+      # green even when the step failed, so read the step's log, not just the tick.
       - name: Smoke test
         if: runner.os == 'Windows'
         run: npm run smoke
       - name: Smoke test (Linux, virtual display)
         if: runner.os == 'Linux'
-        continue-on-error: true
         run: xvfb-run -a npm run smoke
       - name: Smoke test (macOS)
         if: runner.os == 'macOS'

@@ -12,6 +12,15 @@ export interface TabInfo {
   active: boolean;
 }
 
+/** A site asking to use something sensitive. It waits for the user's Allow or Block. */
+export interface PermissionRequest {
+  id: number;
+  tabId: number;
+  origin: string;
+  permission: "media" | "notifications";
+  mediaTypes: ("video" | "audio")[];
+}
+
 export interface AppInfo {
   version: string;
   electron: string;
@@ -59,6 +68,7 @@ export type ChatMessage = { role: "user" | "assistant"; content: string };
 interface Bridge {
   invoke<T = unknown>(channel: string, ...args: unknown[]): Promise<T>;
   onTabs(cb: (tabs: TabInfo[]) => void): () => void;
+  onPermissions(cb: (requests: PermissionRequest[]) => void): () => void;
 }
 
 declare global {
@@ -93,4 +103,7 @@ export const api = {
   netTool: (tool: "dns" | "headers" | "ping" | "rdap", host: string) => b().invoke<unknown>("dev:netTool", tool, host),
   webhook: (url: string, payload: unknown) => b().invoke<{ ok: boolean; status: number }>("dev:webhook", url, payload),
   onTabs: (cb: (tabs: TabInfo[]) => void) => b().onTabs(cb),
+  permissions: () => b().invoke<PermissionRequest[]>("permission:list"),
+  respondPermission: (id: number, allow: boolean) => b().invoke("permission:respond", id, allow),
+  onPermissions: (cb: (requests: PermissionRequest[]) => void) => b().onPermissions(cb),
 };

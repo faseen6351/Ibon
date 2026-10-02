@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import { extractReadable, isTracker } from "./readable.mjs";
 import { summarizeDumps } from "./crash-reports.mjs";
-import { isPermissionAllowed } from "./permissions.mjs";
+import { PermissionManager } from "./permission-manager.mjs";
 import * as ai from "./ai.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -112,10 +112,15 @@ function createTab(url = HOME, activate = true) {
   wc.on("render-process-gone", (_e, details) => {
     if (details.reason === "clean-exit") return;
     t.crashed = details.reason;
+    permissions.forgetTab(id);
     pushTabs();
   });
   wc.on("did-start-loading", () => {
     t.crashed = null;
+  });
+  // A new page starts from scratch: whatever the last page was allowed to use is revoked.
+  wc.on("did-start-navigation", (details) => {
+    if (details.isMainFrame && !details.isSameDocument) permissions.forgetTab(id);
   });
   for (const ev of ["did-start-loading", "did-stop-loading", "page-title-updated", "did-navigate", "did-navigate-in-page"]) wc.on(ev, pushTabs);
   wc.setWindowOpenHandler(({ url: u }) => {
@@ -141,6 +146,7 @@ function activateTab(id) {
 function closeTab(id) {
   const t = tabs.get(id);
   if (!t) return;
+  permissions.forgetTab(id);
   win.contentView.removeChildView(t.view);
   t.view.webContents.close();
   tabs.delete(id);
@@ -176,11 +182,39 @@ function installFilters() {
   });
 }
 
-// ---------- permissions: deny by default (see permissions.mjs) ----------
+// ---------- permissions: ask per site, allow for this page only (see permission-manager.mjs) ----------
+const permissions = new PermissionManager({ onChange: pushPermissions });
+
+function pushPermissions() {
+  if (!win || win.isDestroyed()) return;
+  win.webContents.send("permissions", permissions.snapshot());
+}
+
+function tabIdOf(webContents) {
+  if (!webContents) return null;
+  for (const [id, t] of tabs) if (t.view.webContents === webContents) return id;
+  return null; // not a page tab (the Ibon interface itself needs no permissions)
+}
+
 function installPermissionPolicy() {
   const ses = session.defaultSession;
-  ses.setPermissionRequestHandler((_wc, permission, callback) => callback(isPermissionAllowed(permission)));
-  ses.setPermissionCheckHandler((_wc, permission) => isPermissionAllowed(permission));
+  ses.setPermissionRequestHandler((wc, permission, callback, details) => {
+    const tabId = tabIdOf(wc);
+    if (tabId === null) return callback(false);
+    let origin = null;
+    try {
+      origin = new URL(details.requestingUrl).origin;
+    } catch {
+      /* no usable origin: the manager refuses it */
+    }
+    permissions.request({ tabId, origin, permission, mediaTypes: details.mediaTypes, isMainFrame: details.isMainFrame, respond: callback });
+  });
+  ses.setPermissionCheckHandler((wc, permission, requestingOrigin, details) => {
+    // wc is null when Chromium checks without a page (for example before showing a notification).
+    const tabId = tabIdOf(wc);
+    if (wc && tabId === null) return false; // the Ibon interface itself
+    return permissions.check({ tabId, origin: requestingOrigin, permission, mediaType: details.mediaType, isMainFrame: details.isMainFrame, embeddingOrigin: details.embeddingOrigin });
+  });
 }
 
 // ---------- IPC ----------
@@ -219,6 +253,9 @@ function registerIpc() {
   });
   handle("page:read", () => readActivePage());
   handle("clipboard:write", (text) => clipboard.writeText(String(text)));
+
+  handle("permission:list", () => permissions.snapshot());
+  handle("permission:respond", (id, allow) => permissions.resolve(Number(id), Boolean(allow)));
 
   handle("app:info", () => ({ version: app.getVersion(), electron: process.versions.electron, chromium: process.versions.chrome, platform: process.platform }));
   handle("crash:info", () => summarizeDumps(app.getPath("crashDumps")));

@@ -13,4 +13,9 @@ contextBridge.exposeInMainWorld("ibon", {
     ipcRenderer.on("tabs", listener);
     return () => ipcRenderer.removeListener("tabs", listener);
   },
+  onPermissions(cb) {
+    const listener = (_e, requests) => cb(requests);
+    ipcRenderer.on("permissions", listener);
+    return () => ipcRenderer.removeListener("permissions", listener);
+  },
 });
