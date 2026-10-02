@@ -63,7 +63,8 @@ Signing is on the [roadmap](tasks.md). Until then you can compare the file you d
 
 | Area | What you get |
 | --- | --- |
-| **Browsing** | Tabs, address bar that searches (DuckDuckGo by default), back, forward, reload, Chromium DevTools |
+| **Browsing** | Tabs, back, forward, reload, Chromium DevTools. The address bar knows `localhost:3000`, IP addresses, `[::1]`, `*.local` and `*.test` are dev servers (opened over http), real domains open over https, and anything else (`package.json`, a question) is a search (DuckDuckGo) |
+| **Find and shortcuts** | Find in page with match count, a right-click menu (open link in new tab, copy link, search for selection, Inspect), and the usual browser shortcuts, see below |
 | **PDFs** | Chromium's built-in PDF viewer (PDFium): thumbnails, zoom, rotate, annotate, download, print |
 | **Read mode** | Text-only loading per tab, a clean reader view, word count, page size and blocked-request count |
 | **Privacy** | Built-in tracker and ad-network blocking with a per-tab counter; no telemetry |
@@ -78,6 +79,21 @@ Signing is on the [roadmap](tasks.md). Until then you can compare the file you d
     <td width="50%"><img src="docs/assets/screenshot-readmode.png" alt="Read mode showing a clean text view of a page"><br><sub><b>Read mode:</b> clean text with word count, page size and blocked requests.</sub></td>
   </tr>
 </table>
+
+## Keyboard shortcuts
+
+| Action | Windows / Linux | macOS |
+| --- | --- | --- |
+| New tab, close tab, reopen closed tab | Ctrl+T, Ctrl+W, Ctrl+Shift+T | Cmd+T, Cmd+W, Cmd+Shift+T |
+| Next / previous tab | Ctrl+Tab / Ctrl+Shift+Tab | Ctrl+Tab / Ctrl+Shift+Tab |
+| Go to tab 1–8, last tab | Ctrl+1–8, Ctrl+9 | Cmd+1–8, Cmd+9 |
+| Address bar | Ctrl+L, Alt+D, F6 | Cmd+L |
+| Back / forward | Alt+Left / Alt+Right | Cmd+[ / Cmd+] |
+| Reload / hard reload | Ctrl+R or F5 / Ctrl+Shift+R | Cmd+R / Cmd+Shift+R |
+| Find in page | Ctrl+F | Cmd+F |
+| Zoom in / out / reset | Ctrl+= / Ctrl+- / Ctrl+0 | Cmd+= / Cmd+- / Cmd+0 |
+| Read mode | Ctrl+Alt+R | Cmd+Alt+R |
+| Developer tools | F12 or Ctrl+Shift+I | F12 or Cmd+Alt+I |
 
 ## Connect an LLM (optional)
 
