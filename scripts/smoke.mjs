@@ -214,8 +214,12 @@ try {
     if (process.platform === "win32") execSync(`taskkill /PID ${child.pid} /T /F`, { stdio: "ignore" });
     else child.kill("SIGKILL");
   } catch { /* already gone */ }
-  fs.rmSync(profile, { recursive: true, force: true, maxRetries: 3 });
+  // Report first: tidying the profile must never hide the result (Windows can keep the folder locked for a moment).
   const failed = results.filter((r) => !r.ok).length;
   console.log(failed ? `\n${failed} of ${results.length} checks FAILED` : `\nall ${results.length} checks passed`);
+  await sleep(500);
+  try {
+    fs.rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  } catch { /* leftover temp folder; the OS cleans it eventually */ }
   process.exit(failed ? 1 : 0);
 }
