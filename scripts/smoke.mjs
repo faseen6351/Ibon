@@ -146,7 +146,9 @@ try {
   check("brand mark renders", Boolean(await until(() => evaluate(ui, "(() => { const i = document.querySelector('img.brand'); return !!i && i.complete && i.naturalWidth > 0; })()"), 10000)));
   await shot(ui, "ui.png");
 
-  await evaluate(ui, `window.ibon.invoke('tab:navigate', '${base}/page.html')`);
+  // The address bar. Typing a bare dev address (no scheme) must open it over http; it used to become https and fail.
+  const hostPort = base.replace("http://", ""); // like "127.0.0.1:54595"
+  await evaluate(ui, `window.ibon.invoke('tab:navigate', '${hostPort}/page.html')`);
   const tab = await until(async () => (await targets()).find((t) => t.type === "page" && t.url.startsWith(base) && t.title === "Ibon smoke page"), 20000);
   check("a tab loads a page", Boolean(tab));
 

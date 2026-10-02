@@ -6,12 +6,11 @@ import { fileURLToPath } from "node:url";
 import { extractReadable, isTracker } from "./readable.mjs";
 import { summarizeDumps } from "./crash-reports.mjs";
 import { PermissionManager } from "./permission-manager.mjs";
+import { HOME, parseHostsFile, resolveInput } from "./address.mjs";
 import * as ai from "./ai.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEV_URL = process.env.IBON_DEV_URL;
-const HOME = "https://duckduckgo.com/";
-const SEARCH = "https://duckduckgo.com/?q=";
 const BLOCKED_IN_READ_MODE = new Set(["image", "media", "font"]);
 
 // Crash reports: Electron bundles Crashpad, Chromium's crash reporter. Reports stay on this device; nothing
@@ -61,14 +60,16 @@ function activeProvider() {
   return { ...s.provider, apiKey };
 }
 
-// ---------- url helpers ----------
-function normalize(input) {
-  const v = String(input ?? "").trim();
-  if (!v) return HOME;
-  if (/^https?:\/\//i.test(v)) return v;
-  if (/^[\w-]+(\.[\w-]+)+(:\d+)?(\/.*)?$/.test(v) || /^localhost(:\d+)?(\/.*)?$/i.test(v)) return `https://${v}`;
-  return SEARCH + encodeURIComponent(v);
+// ---------- url helpers (the rules live in address.mjs, which is unit-tested) ----------
+// Names from the OS hosts file, so `myapp` or `dev.shopfront` typed in the address bar can be a site on this machine.
+let hostNames = new Set();
+function loadHostsFile() {
+  const file = process.platform === "win32" ? path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "drivers", "etc", "hosts") : "/etc/hosts";
+  fs.readFile(file, "utf8", (err, contents) => {
+    if (!err) hostNames = parseHostsFile(contents);
+  });
 }
+const normalize = (input) => resolveInput(input, { hostNames });
 const isWebUrl = (u) => /^https?:\/\//i.test(u);
 
 // ---------- tabs ----------
@@ -348,6 +349,7 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  loadHostsFile();
   installPermissionPolicy();
   installFilters();
   registerIpc();
