@@ -12,6 +12,15 @@ export interface TabInfo {
   active: boolean;
 }
 
+/** Find in page: which match is selected, and how many there are. */
+export interface FindResult {
+  active: number;
+  matches: number;
+}
+
+/** Things the keyboard asks the interface to do (the rest are done by the main process). */
+export type ShortcutAction = "focus-address" | "find";
+
 /** A site asking to use something sensitive. It waits for the user's Allow or Block. */
 export interface PermissionRequest {
   id: number;
@@ -69,6 +78,8 @@ interface Bridge {
   invoke<T = unknown>(channel: string, ...args: unknown[]): Promise<T>;
   onTabs(cb: (tabs: TabInfo[]) => void): () => void;
   onPermissions(cb: (requests: PermissionRequest[]) => void): () => void;
+  onShortcut(cb: (action: ShortcutAction) => void): () => void;
+  onFindResult(cb: (result: FindResult) => void): () => void;
 }
 
 declare global {
@@ -103,6 +114,10 @@ export const api = {
   netTool: (tool: "dns" | "headers" | "ping" | "rdap", host: string) => b().invoke<unknown>("dev:netTool", tool, host),
   webhook: (url: string, payload: unknown) => b().invoke<{ ok: boolean; status: number }>("dev:webhook", url, payload),
   onTabs: (cb: (tabs: TabInfo[]) => void) => b().onTabs(cb),
+  findRun: (text: string, forward: boolean, newSession: boolean) => b().invoke("find:run", text, forward, newSession),
+  findStop: () => b().invoke("find:stop"),
+  onShortcut: (cb: (action: ShortcutAction) => void) => b().onShortcut(cb),
+  onFindResult: (cb: (result: FindResult) => void) => b().onFindResult(cb),
   permissions: () => b().invoke<PermissionRequest[]>("permission:list"),
   respondPermission: (id: number, allow: boolean) => b().invoke("permission:respond", id, allow),
   onPermissions: (cb: (requests: PermissionRequest[]) => void) => b().onPermissions(cb),

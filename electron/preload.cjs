@@ -13,6 +13,16 @@ contextBridge.exposeInMainWorld("ibon", {
     ipcRenderer.on("tabs", listener);
     return () => ipcRenderer.removeListener("tabs", listener);
   },
+  onShortcut(cb) {
+    const listener = (_e, action) => cb(action);
+    ipcRenderer.on("shortcut", listener);
+    return () => ipcRenderer.removeListener("shortcut", listener);
+  },
+  onFindResult(cb) {
+    const listener = (_e, result) => cb(result);
+    ipcRenderer.on("find-result", listener);
+    return () => ipcRenderer.removeListener("find-result", listener);
+  },
   onPermissions(cb) {
     const listener = (_e, requests) => cb(requests);
     ipcRenderer.on("permissions", listener);

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, WebContentsView, ipcMain, session, shell, safeStorage, clipboard, crashReporter } from "electron";
+import { app, BrowserWindow, WebContentsView, Menu, ipcMain, session, shell, safeStorage, clipboard, crashReporter } from "electron";
 import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -6,7 +6,9 @@ import { fileURLToPath } from "node:url";
 import { extractReadable, isTracker } from "./readable.mjs";
 import { summarizeDumps } from "./crash-reports.mjs";
 import { PermissionManager } from "./permission-manager.mjs";
-import { HOME, parseHostsFile, resolveInput } from "./address.mjs";
+import { HOME, SEARCH, parseHostsFile, resolveInput } from "./address.mjs";
+import { matchShortcut } from "./shortcuts.mjs";
+import { buildContextMenuTemplate } from "./context-menu.mjs";
 import * as ai from "./ai.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -131,6 +133,11 @@ function createTab(url = HOME, activate = true) {
   wc.on("will-navigate", (e, u) => {
     if (!isWebUrl(u)) e.preventDefault();
   });
+  watchKeys(wc);
+  wc.on("found-in-page", (_e, r) => {
+    if (id === activeId && win && !win.isDestroyed()) win.webContents.send("find-result", { active: r.activeMatchOrdinal, matches: r.matches });
+  });
+  wc.on("context-menu", (_e, params) => showContextMenu(wc, params));
   wc.loadURL(normalize(url)).catch(() => {});
   if (activate) activateTab(id);
   else pushTabs();
@@ -139,25 +146,141 @@ function createTab(url = HOME, activate = true) {
 
 function activateTab(id) {
   if (!tabs.has(id)) return;
+  if (id !== activeId) tabs.get(activeId)?.view.webContents.stopFindInPage("clearSelection"); // leave no highlights behind
   activeId = id;
   layoutActive();
   pushTabs();
 }
 
+/** URLs of recently closed tabs, newest last, for "reopen closed tab". */
+const closedTabs = [];
+
 function closeTab(id) {
   const t = tabs.get(id);
   if (!t) return;
+  const url = t.view.webContents.getURL();
+  if (isWebUrl(url)) closedTabs.push(url);
+  if (closedTabs.length > 20) closedTabs.shift();
+  const order = [...tabs.keys()];
+  const at = order.indexOf(id);
   permissions.forgetTab(id);
   win.contentView.removeChildView(t.view);
   t.view.webContents.close();
   tabs.delete(id);
   if (activeId === id) {
-    const ids = [...tabs.keys()];
-    activeId = ids.length ? ids[ids.length - 1] : null;
+    // Like every browser: land on the tab that was next to the closed one (the right one, else the left).
+    const rest = order.filter((x) => x !== id);
+    activeId = rest.length ? rest[Math.min(at, rest.length - 1)] : null;
     if (activeId === null) return void createTab(HOME, true);
   }
   layoutActive();
   pushTabs();
+}
+
+function toggleReadMode(on) {
+  const t = activeTab();
+  if (!t) return;
+  t.readMode = on ?? !t.readMode;
+  if (t.readMode === false) t.view.webContents.reload();
+  pushTabs();
+  return t.readMode;
+}
+
+// ---------- keyboard shortcuts (the key map lives in shortcuts.mjs, which is unit-tested) ----------
+function watchKeys(wc) {
+  wc.on("before-input-event", (event, input) => {
+    const action = matchShortcut(input);
+    if (!action) return;
+    event.preventDefault(); // also stops the page and any menu from seeing the key
+    runShortcut(action);
+  });
+}
+
+const ZOOM_STEP = 0.5;
+function zoom(wc, change) {
+  const next = change === 0 ? 0 : Math.max(-3, Math.min(5, wc.getZoomLevel() + change));
+  wc.setZoomLevel(next);
+}
+
+function runShortcut(action) {
+  const wc = activeTab()?.view.webContents;
+  const order = [...tabs.keys()];
+  const at = order.indexOf(activeId);
+  const goto = (id) => id !== undefined && activateTab(id);
+  // Things only the interface can do (it owns the address bar and the find bar).
+  const tellUi = (name) => {
+    if (!win || win.isDestroyed()) return;
+    win.webContents.focus();
+    win.webContents.send("shortcut", name);
+  };
+
+  if (action.startsWith("select-tab:")) return void goto(order[Number(action.split(":")[1]) - 1]);
+  switch (action) {
+    case "new-tab":
+      createTab(HOME, true);
+      return tellUi("focus-address");
+    case "close-tab":
+      return activeId === null ? undefined : closeTab(activeId);
+    case "reopen-tab": {
+      const url = closedTabs.pop();
+      return url ? void createTab(url, true) : undefined;
+    }
+    case "next-tab":
+      return goto(order[(at + 1) % order.length]);
+    case "previous-tab":
+      return goto(order[(at - 1 + order.length) % order.length]);
+    case "last-tab":
+      return goto(order[order.length - 1]);
+    case "focus-address":
+    case "find":
+      return tellUi(action);
+    case "reload":
+      return wc?.reload();
+    case "hard-reload":
+      return wc?.reloadIgnoringCache();
+    case "back":
+      return wc?.navigationHistory.goBack();
+    case "forward":
+      return wc?.navigationHistory.goForward();
+    case "devtools":
+      return wc?.toggleDevTools();
+    case "zoom-in":
+      return wc && zoom(wc, ZOOM_STEP);
+    case "zoom-out":
+      return wc && zoom(wc, -ZOOM_STEP);
+    case "zoom-reset":
+      return wc && zoom(wc, 0);
+    case "read-mode":
+      return void toggleReadMode();
+  }
+}
+
+// ---------- right-click menu (the items live in context-menu.mjs, which is unit-tested) ----------
+function showContextMenu(wc, params) {
+  const template = buildContextMenuTemplate(params, {
+    openTab: (u) => createTab(u, true),
+    copyText: (text) => clipboard.writeText(text),
+    search: (text) => createTab(SEARCH + encodeURIComponent(text), true),
+    back: () => wc.navigationHistory.goBack(),
+    forward: () => wc.navigationHistory.goForward(),
+    reload: () => wc.reload(),
+    inspect: (x, y) => wc.inspectElement(x, y),
+    canGoBack: wc.navigationHistory.canGoBack(),
+    canGoForward: wc.navigationHistory.canGoForward(),
+    engineName: "DuckDuckGo",
+  });
+  Menu.buildFromTemplate(template).popup({ window: win ?? undefined });
+}
+
+// The default Electron menu gives Ctrl+W (closes the whole window, every tab), Ctrl+R (reloads Ibon's own
+// interface instead of the page) and Ctrl+Shift+I (developer tools for the interface). Replace it. Windows and
+// Linux need no menu; macOS needs the Edit menu or copy and paste stop working.
+function installAppMenu() {
+  if (process.platform === "darwin") {
+    Menu.setApplicationMenu(Menu.buildFromTemplate([{ role: "appMenu" }, { role: "editMenu" }, { label: "Window", submenu: [{ role: "minimize" }, { role: "zoom" }] }]));
+  } else {
+    Menu.setApplicationMenu(null);
+  }
 }
 
 const activeTab = () => (activeId != null ? tabs.get(activeId) : undefined);
@@ -239,13 +362,23 @@ function registerIpc() {
   handle("tab:forward", () => activeTab()?.view.webContents.navigationHistory.goForward());
   handle("tab:reload", () => activeTab()?.view.webContents.reload());
   handle("tab:devtools", () => activeTab()?.view.webContents.toggleDevTools());
-  handle("tab:readMode", (on) => {
-    const t = activeTab();
-    if (!t) return;
-    t.readMode = on ?? !t.readMode;
-    if (t.readMode === false) t.view.webContents.reload();
-    pushTabs();
-    return t.readMode;
+  handle("tab:readMode", (on) => toggleReadMode(on));
+  // newSession: true when the text changed (start a fresh search), false to step to the next or previous match.
+  // Electron names the same flag `findNext` but with the opposite sense: findNext:true means "begin a new search".
+  handle("find:run", (text, forward = true, newSession = true) => {
+    const wc = activeTab()?.view.webContents;
+    if (!wc) return;
+    const query = String(text ?? "");
+    if (!query) {
+      wc.stopFindInPage("clearSelection");
+      return win?.webContents.send("find-result", { active: 0, matches: 0 });
+    }
+    wc.findInPage(query, { forward: Boolean(forward), findNext: Boolean(newSession) });
+  });
+  handle("find:stop", () => {
+    const wc = activeTab()?.view.webContents;
+    wc?.stopFindInPage("clearSelection");
+    wc?.focus(); // give the page its keyboard back
   });
   handle("view:layout", (b, visible) => {
     bounds = { x: Math.round(b.x), y: Math.round(b.y), width: Math.max(0, Math.round(b.width)), height: Math.max(0, Math.round(b.height)) };
@@ -335,6 +468,7 @@ function createWindow() {
     webPreferences: { preload: path.join(__dirname, "preload.cjs"), sandbox: true, contextIsolation: true, nodeIntegration: false },
   });
   win.setMenuBarVisibility(false);
+  watchKeys(win.webContents); // shortcuts work while the address bar or sidebar has the keyboard too
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (isWebUrl(url)) shell.openExternal(url);
     return { action: "deny" };
@@ -349,6 +483,7 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  installAppMenu();
   loadHostsFile();
   installPermissionPolicy();
   installFilters();

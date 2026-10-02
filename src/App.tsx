@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { api, type PageText, type PermissionRequest, type TabInfo } from "./lib/api";
+import { api, type FindResult, type PageText, type PermissionRequest, type TabInfo } from "./lib/api";
 import { Sidebar, type Panel } from "./components/Sidebar";
 import { Reader } from "./components/Reader";
 import { CrashNotice } from "./components/CrashNotice";
 import { PermissionBar } from "./components/PermissionBar";
+import { FindBar } from "./components/FindBar";
 import brandIcon from "../assets/brand/ibon-icon.svg";
 
 export function App() {
@@ -15,6 +16,10 @@ export function App() {
   const [panel, setPanel] = useState<Panel>("assistant");
   const [reader, setReader] = useState<{ page?: PageText; error?: string; loading: boolean }>({ loading: false });
   const contentRef = useRef<HTMLDivElement>(null);
+  const addressRef = useRef<HTMLInputElement>(null);
+  const [findOpen, setFindOpen] = useState(false);
+  const [findFocus, setFindFocus] = useState(0);
+  const [findResult, setFindResult] = useState<FindResult | null>(null);
 
   const active = tabs.find((t) => t.active);
   const readMode = Boolean(active?.readMode);
@@ -23,6 +28,31 @@ export function App() {
   const showPage = !readMode && !crashed;
 
   useEffect(() => api.onTabs(setTabs), []);
+  useEffect(() => api.onFindResult((r) => setFindResult(r)), []);
+  // Keyboard shortcuts that only the interface can carry out.
+  useEffect(
+    () =>
+      api.onShortcut((action) => {
+        if (action === "focus-address") {
+          addressRef.current?.focus();
+          addressRef.current?.select();
+        } else if (action === "find") {
+          setFindOpen(true);
+          setFindFocus((n) => n + 1);
+        }
+      }),
+    [],
+  );
+  // The find bar belongs to one page: close it when you switch tabs or the page changes.
+  useEffect(() => {
+    setFindOpen(false);
+    setFindResult(null);
+  }, [active?.id, active?.url]);
+  const closeFind = useCallback(() => {
+    setFindOpen(false);
+    setFindResult(null);
+    void api.findStop();
+  }, []);
   useEffect(() => {
     void api.permissions().then(setPermissionRequests).catch(() => {});
     return api.onPermissions(setPermissionRequests);
@@ -115,6 +145,7 @@ export function App() {
         <button type="button" className="icon" onClick={() => api.reload()} title="Reload">⟳</button>
         <input
           className="address"
+          ref={addressRef}
           value={address}
           onFocus={(e) => {
             setEditing(true);
@@ -134,6 +165,19 @@ export function App() {
 
       {myRequests.length > 0 && (
         <PermissionBar request={myRequests[0]} more={myRequests.length - 1} onRespond={(id, allow) => void api.respondPermission(id, allow)} />
+      )}
+
+      {findOpen && (
+        <FindBar
+          result={findResult}
+          focusKey={findFocus}
+          onQuery={(text) => {
+            setFindResult(null); // searching: show nothing until the first answer
+            void api.findRun(text, true, true);
+          }}
+          onStep={(text, forward) => void api.findRun(text, forward, false)}
+          onClose={closeFind}
+        />
       )}
 
       <div className="body">

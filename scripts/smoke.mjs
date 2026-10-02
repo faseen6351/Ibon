@@ -26,6 +26,20 @@ const check = (name, ok, detail = "") => {
   console.log(`${ok ? "PASS" : "FAIL"}  ${name}${detail ? `  (${detail})` : ""}`);
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const MOD = process.platform === "darwin" ? "meta" : "ctrl"; // the main shortcut key on this OS
+
+/** Sends a real key press to a page over the DevTools Protocol, like "ctrl+shift+t" or "Enter". */
+async function press(c, combo) {
+  const parts = combo.split("+");
+  const k = parts.pop();
+  const has = (m) => parts.includes(m);
+  const modifiers = (has("alt") ? 1 : 0) | (has("ctrl") ? 2 : 0) | (has("meta") ? 4 : 0) | (has("shift") ? 8 : 0);
+  const named = { Tab: 9, Enter: 13, Escape: 27 };
+  const vk = named[k] ?? k.toUpperCase().charCodeAt(0);
+  const base = { modifiers, key: k.length === 1 && has("shift") ? k.toUpperCase() : k, code: k.length === 1 ? "Key" + k.toUpperCase() : k, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk };
+  await c.send("Input.dispatchKeyEvent", { type: "rawKeyDown", ...base });
+  await c.send("Input.dispatchKeyEvent", { type: "keyUp", ...base });
+}
 async function until(fn, ms = 20000, step = 300) {
   const end = Date.now() + ms;
   for (;;) {
@@ -109,7 +123,7 @@ const server = http.createServer((req, res) => {
     res.end(pdf);
   } else {
     res.writeHead(200, { "Content-Type": "text/html" });
-    res.end("<!doctype html><title>Ibon smoke page</title><h1>hello</h1>");
+    res.end("<!doctype html><title>Ibon smoke page</title><h1>hello</h1><p>needle one</p><p>needle two</p><p>needle three</p>");
   }
 });
 await new Promise((r) => server.listen(0, "127.0.0.1", r));
@@ -117,7 +131,9 @@ const base = `http://127.0.0.1:${server.address().port}`;
 
 const port = await freePort();
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), "ibon-smoke-"));
-const args = [`--remote-debugging-port=${port}`, `--user-data-dir=${profile}`];
+// Windows treats a window hidden behind other windows as invisible and throttles it, which delays find-in-page and
+// painting. Tests must not depend on what else is on the desktop.
+const args = [`--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, "--disable-features=CalculateNativeWinOcclusion", "--disable-backgrounding-occluded-windows"];
 if (process.platform === "linux" && process.env.CI) args.push("--no-sandbox"); // CI containers cannot set up the SUID sandbox
 const env = { ...process.env };
 delete env.ELECTRON_RUN_AS_NODE; // set by some editors' terminals; would run Electron as plain Node
@@ -152,6 +168,45 @@ try {
   const tab = await until(async () => (await targets()).find((t) => t.type === "page" && t.url.startsWith(base) && t.title === "Ibon smoke page"), 20000);
   check("a tab loads a page", Boolean(tab));
 
+  // ---- Keyboard shortcuts, sent as real key presses. (Regression: with Electron's default menu, Ctrl+W closed the
+  // whole window, Ctrl+R reloaded Ibon's own interface, and there was no Ctrl+T, Ctrl+L, Ctrl+F or Ctrl+Tab.)
+  const tabCount = () => evaluate(ui, "document.querySelectorAll('.tab').length");
+  const activeTabUrl = () => evaluate(ui, "document.querySelector('.tab.active')?.getAttribute('title') || ''");
+  const waitFor = (fn, ms = 10000) => until(async () => ((await fn()) ? true : null), ms);
+  const n0 = await tabCount();
+  await press(ui, `${MOD}+t`);
+  check("Ctrl/Cmd+T opens a new tab", Boolean(await waitFor(async () => (await tabCount()) === n0 + 1)));
+  check("and puts the cursor in the address bar", Boolean(await waitFor(() => evaluate(ui, "document.activeElement === document.querySelector('.address')"))));
+  await evaluate(ui, `window.ibon.invoke('tab:navigate', '${hostPort}/page.html?second')`);
+  await waitFor(async () => (await targets()).some((t) => t.type === "page" && t.url.endsWith("?second") && t.title === "Ibon smoke page"), 20000);
+  await press(ui, "ctrl+Tab");
+  check("Ctrl+Tab goes to the next tab (wrapping round)", Boolean(await waitFor(async () => { const u = await activeTabUrl(); return u.endsWith("/page.html") && !u.includes("second"); })));
+  await press(ui, "ctrl+shift+Tab");
+  check("Ctrl+Shift+Tab goes back", Boolean(await waitFor(async () => (await activeTabUrl()).includes("second"))));
+  await press(ui, `${MOD}+w`);
+  check("Ctrl/Cmd+W closes just that tab, and the neighbour takes over", Boolean(await waitFor(async () => (await tabCount()) === n0 && (await activeTabUrl()).endsWith("/page.html"))));
+  check("the browser is still running", (await targets()).some((t) => t.type === "page" && t.url.startsWith("file:")));
+  await press(ui, `${MOD}+shift+t`);
+  check("Ctrl/Cmd+Shift+T reopens the closed tab at its address", Boolean(await waitFor(async () => (await tabCount()) === n0 + 1 && (await activeTabUrl()).includes("?second"))));
+  await press(ui, `${MOD}+w`);
+  await waitFor(async () => (await tabCount()) === n0 && (await activeTabUrl()).endsWith("/page.html"));
+
+  // ---- Find in page.
+  await press(ui, `${MOD}+f`);
+  check("Ctrl/Cmd+F opens the find bar with the cursor in it", Boolean(await waitFor(() => evaluate(ui, "document.activeElement === document.querySelector('.find-input')"))));
+  await ui.send("Input.insertText", { text: "needle" });
+  const findStatus = () => evaluate(ui, "document.querySelector('.find-status')?.textContent || ''");
+  check("it counts the matches on the page", Boolean(await waitFor(async () => (await findStatus()) === "1 of 3")), await findStatus());
+  await shot(ui, "find-bar.png");
+  await press(ui, "Enter");
+  check("Enter moves to the next match", Boolean(await waitFor(async () => (await findStatus()) === "2 of 3")), await findStatus());
+  await press(ui, "shift+Enter");
+  check("Shift+Enter moves back", Boolean(await waitFor(async () => (await findStatus()) === "1 of 3")), await findStatus());
+  await ui.send("Input.insertText", { text: "zzz" });
+  check("no matches says so", Boolean(await waitFor(async () => (await findStatus()) === "No matches")), await findStatus());
+  await press(ui, "Escape");
+  check("Esc closes the find bar", Boolean(await waitFor(() => evaluate(ui, "!document.querySelector('.findbar')"))));
+
   // ---- Permissions. A page must not get the camera, microphone, location, notifications or clipboard contents
   // without the user saying yes. (Regression: Electron grants every request unless the app installs a handler.)
   // Only notifications are ever ALLOWED here, and camera plus microphone are only ever BLOCKED, so the test
@@ -166,7 +221,7 @@ try {
     }
   };
   const bar = () => evaluate(ui, "document.querySelector('.permbar')?.textContent || ''");
-  const press = (label) => evaluate(ui, `[...document.querySelectorAll('.permbar button')].find((b) => b.textContent === '${label}')?.click()`);
+  const clickBar = (label) => evaluate(ui, `[...document.querySelectorAll('.permbar button')].find((b) => b.textContent === '${label}')?.click()`);
 
   const states = JSON.parse(
     await inTab(`(async () => {
@@ -184,7 +239,7 @@ try {
   const noticeBar = await until(async () => ((await bar()).includes("wants to show notifications") ? await bar() : ""), 10000);
   check("a notification request shows an Allow / Block bar naming the site", Boolean(noticeBar), noticeBar || "no bar");
   await shot(ui, "permission-bar.png");
-  await press("Block");
+  await clickBar("Block");
   check("Block refuses the request", (await inTab("window.__ask")) === "denied");
   check("the bar goes away", (await bar()) === "");
   await inTab("window.__ask = Notification.requestPermission(); 1");
@@ -193,7 +248,7 @@ try {
   const camera = await inTab("window.__cam = navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then(() => 'opened', (e) => e.name); 1");
   const cameraBar = await until(async () => ((await bar()).includes("camera and microphone") ? await bar() : ""), 10000);
   check("a camera and microphone request asks first", Boolean(cameraBar) && camera === 1, cameraBar || "no bar");
-  await press("Block");
+  await clickBar("Block");
   check("blocking camera and microphone refuses it", (await inTab("window.__cam")) === "NotAllowedError");
 
   // A page that changes starts from scratch, so the earlier Block no longer applies. Allow notifications this time.
@@ -202,7 +257,7 @@ try {
   await sleep(500);
   await inTab("window.__ask = Notification.requestPermission(); 1");
   check("after reloading, the site can ask afresh", Boolean(await until(async () => ((await bar()).includes("wants to show notifications") ? "yes" : ""), 10000)));
-  await press("Allow");
+  await clickBar("Allow");
   check("Allow grants it", (await inTab("window.__ask")) === "granted");
   check("the page now sees the grant", (await inTab("Notification.permission")) === "granted");
   await evaluate(ui, "window.ibon.invoke('tab:reload')");
